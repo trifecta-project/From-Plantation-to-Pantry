@@ -94,7 +94,7 @@ The pipeline produces the following outputs mapped to the paper:
 | Table 3 (JSD values) | `embedding_extraction/analysis/output/csv/jsd_consecutive_decades.csv` |
 | Table 4 (clustering statistics) | `embedding_extraction/analysis/output/csv/cluster_summary_detailed.csv` |
 | Tables 5–10 (cluster contexts) | `embedding_extraction/analysis/output/cluster_contexts/` |
-| Figure 4 (cosine similarity) | `static_embeddings/` |
+| Figure 4 (cosine similarity) | `static_embeddings/results/trajectory_results/all_trajectories.png` |
 | Figures 5–7 (t-SNE trajectories) | `static_embeddings/results/trajectory_results` |
 | Figure 8 (coffee clusters) | `embedding_extraction/analysis/output/clusters/coffee/` |
 | Figure 9 (sugar/cocoa PCA) | `embedding_extraction/analysis/output/PCA/` |
