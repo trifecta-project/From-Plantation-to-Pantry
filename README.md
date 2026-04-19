@@ -20,7 +20,14 @@ From-Plantation-to-Pantry/
 ├── data/                              # Corpus data and access instructions
 │   └── 
 │   ├── pretrained_word2vec_vectors
+        ├── README.md
+        ├── shared_vocab.py
+        └── shared_vocab_output.txt
 │   ├── en_decade_corpus/           # Decade-level sub-corpora (generated)
+        ├── README.md
+        ├── corpus_overview.csv                     # Per-decade corpus composition statistics
+        ├── newspaper_inventory.csv                 # All 120 newspaper titles in the corpus
+        └── top30_newspapers_by_article_count.csv   # Top 30 newspapers by volume
 │
 ├── corpus_preparation/                # Aggregate HMD + LwM into decade files
 │   ├── aggregate_and_partition.py
