@@ -158,8 +158,6 @@ python analysis/jsd.py
 4. Computes Jensen–Shannon Divergence using `scipy.spatial.distance.jensenshannon`
 5. Also computes JSD vs. the 1910s reference decade for all words
 
-**Note on checkpointing:** The script supports resumption — it checks which word-decade pairs already exist in the output CSV and skips them. This is useful because AP on large embedding matrices (e.g., tea with 40k+ usages per decade) can take substantial time.
-
 ## Output
 
 ### `output/csv/`
