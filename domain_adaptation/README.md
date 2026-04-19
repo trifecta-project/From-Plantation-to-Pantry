@@ -124,8 +124,6 @@ model = BertForMaskedLM.from_pretrained("path/to/output/fine_tuned_macberth")
 tokenizer = AutoTokenizer.from_pretrained("path/to/output/fine_tuned_macberth")
 ```
 
-**Important:** Domain adaptation updates the model weights but does not change the tokeniser vocabulary. The tokeniser remains identical to the base MacBERTh tokeniser. This means that OCR variants or historical spellings not present in the original MacBERTh vocabulary (e.g., *coffe*, *tee*) will still be split into subword tokens and cannot be analysed as single-token embeddings.
-
 ## Relationship to the paper
 
 - **Section 4.2** (Model Fine-tuning for Domain Adaptation) describes the grid search procedure, the 1% subcorpus rationale, and the winning configuration
