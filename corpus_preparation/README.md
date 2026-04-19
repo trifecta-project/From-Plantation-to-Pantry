@@ -32,8 +32,6 @@ python aggregate_and_partition.py \
 - Writes all text from each decade into a single file: `en_1800s.txt`, `en_1810s.txt`, ..., `en_1910s.txt`
 - Generates `aggregation_report.txt` (human-readable summary) and `aggregation_stats.json` (machine-readable statistics)
 
-**Runtime:** Several hours on a multi-core machine, depending on disk I/O. The `--workers` flag controls parallelism.
-
 **Key statistics from our run** (from `aggregation_report.txt`):
 - Files processed: 7,982,524
 - Files skipped: 1,399,130 (empty, too short, or year not extractable)
