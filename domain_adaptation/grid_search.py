@@ -34,7 +34,7 @@ run_name = f"lr{lr}_bs{batch_size}_ep{epochs}"
 print(f"Config {args.config_idx}: {run_name}")
 
 # ---- Paths ------------------------------------------------------------------
-dir_in     = "/data/groups/trifecta/jiaqiz/british_newspapers"
+dir_in     = "..." #change it to your path
 dir_corpus = os.path.join(dir_in, "en_decade_corpus")
 dir_out    = os.path.join(dir_in, "output", "grid_search")
 run_out    = os.path.join(dir_out, run_name)
