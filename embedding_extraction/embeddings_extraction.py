@@ -18,7 +18,7 @@ parser.add_argument('--model', type=str, choices=['pretrained', 'finetuned'], de
 args = parser.parse_args()
 
 # Define paths
-dir_in = "/data/groups/trifecta/jiaqiz/british_newspapers"
+dir_in = "..." #change it to your path
 dir_corpus = os.path.join(dir_in, "en_decade_corpus")
 
 # Model selection based on argument
