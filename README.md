@@ -89,8 +89,8 @@ The pipeline produces the following outputs mapped to the paper:
 
 | Paper element | Output |
 |---|---|
-| Table 1 (token counts) | `corpus_preparation/decade_term_frequencies.csv` |
-| Table 2 (nearest neighbours) | `static_embeddings/` |
+| Table 1 (token counts) | `data/en_decade_corpus/corpus_overview.csv` |
+| Table 2 (nearest neighbours) | `static_embeddings/results/w2v_neighbors` |
 | Table 3 (JSD values) | `embedding_extraction/analysis/output/csv/jsd_consecutive_decades.csv` |
 | Table 4 (clustering statistics) | `embedding_extraction/analysis/output/csv/cluster_summary_detailed.csv` |
 | Tables 5–10 (cluster contexts) | `embedding_extraction/analysis/output/cluster_contexts/` |
