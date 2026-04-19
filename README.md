@@ -95,7 +95,7 @@ The pipeline produces the following outputs mapped to the paper:
 | Table 4 (clustering statistics) | `embedding_extraction/analysis/output/csv/cluster_summary_detailed.csv` |
 | Tables 5–10 (cluster contexts) | `embedding_extraction/analysis/output/cluster_contexts/` |
 | Figure 4 (cosine similarity) | `static_embeddings/` |
-| Figures 5–7 (t-SNE trajectories) | `static_embeddings/` |
+| Figures 5–7 (t-SNE trajectories) | `static_embeddings/results/trajectory_results` |
 | Figure 8 (coffee clusters) | `embedding_extraction/analysis/output/clusters/coffee/` |
 | Figure 9 (sugar/cocoa PCA) | `embedding_extraction/analysis/output/PCA/` |
 | Figures 10–11 (domain adaptation) | `domain_adaptation_evaluation/pca_plots/` |
