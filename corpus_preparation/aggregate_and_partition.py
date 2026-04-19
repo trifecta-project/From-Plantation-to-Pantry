@@ -11,8 +11,8 @@ This script:
 
 Usage:
     python aggregate_and_partition.py \
-        --lwm /Users/zhujiaqi/Downloads/lwm-alto2txt/plaintext \
-        --hmd "/Users/zhujiaqi/Downloads/Daniel - hmd-alto2txt/plaintext" \
+        --lwm ".../Downloads/lwm-alto2txt/plaintext" \ #change it to your path
+        --hmd ".../Downloads/Daniel - hmd-alto2txt/plaintext" \ #change it to your path
         --output ./en_decade_corpus
 
 Output structure:
