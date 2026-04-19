@@ -13,7 +13,7 @@ The underlying corpus is drawn from the British Library's [Heritage Made Digital
 ## Repository Structure
 
 ```
-commodities/
+From-Plantation-to-Pantry/
 ├── README.md
 ├── requirements.txt
 │
