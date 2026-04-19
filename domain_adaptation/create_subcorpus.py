@@ -15,7 +15,7 @@ parser.add_argument("--fraction", type=float, default=0.01,
 parser.add_argument("--seed", type=int, default=42)
 args = parser.parse_args()
 
-dir_in     = "/data/groups/trifecta/jiaqiz/british_newspapers"
+dir_in     = "..." # change it to your path
 dir_corpus = os.path.join(dir_in, "en_decade_corpus")
 out_path   = os.path.join(dir_corpus, "subcorpus.txt")
 
