@@ -9,7 +9,7 @@ from sklearn.metrics import silhouette_score
 # Configuration
 # =============================================================================
 
-dir_in = "/data/groups/trifecta/jiaqiz/british_newspapers"
+dir_in = "..." #change it to your path
 dir_emb = os.path.join(dir_in, "output", "embeddings_macberth_finetuned")
 
 # New output directory — only visible-target snippets
