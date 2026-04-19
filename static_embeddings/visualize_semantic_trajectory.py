@@ -17,7 +17,6 @@ Usage:
     python visualize_semantic_trajectory.py --word tea --decades 1840s 1860s 1880s 1900s
     python visualize_semantic_trajectory.py --word sugar --topn 30 
 
-Author: Jiaqi Zhu (TRIFECTA project, KNAW Humanities Cluster)
 """
 
 import os
