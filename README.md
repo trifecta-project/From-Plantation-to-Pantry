@@ -18,7 +18,6 @@ From-Plantation-to-Pantry/
 ├── requirements.txt
 │
 ├── data/                              # Corpus data and access instructions
-│   └── 
 │   ├── pretrained_word2vec_vectors
         ├── README.md
         ├── shared_vocab.py
