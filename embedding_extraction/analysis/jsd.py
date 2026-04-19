@@ -11,7 +11,7 @@ from scipy.spatial.distance import jensenshannon
 # Configuration
 # =============================================================================
 
-dir_in = "/data/groups/trifecta/jiaqiz/british_newspapers"
+dir_in = "..." #change it to your path
 dir_emb = os.path.join(dir_in, "output", "embeddings_macberth_finetuned")
 dir_out = os.path.join(dir_in, "output", "analysis")
 
