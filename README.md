@@ -18,12 +18,15 @@ commodities/
 ├── requirements.txt
 │
 ├── data/                              # Corpus data and access instructions
-│   └── en_decade_corpus/              # Decade-level sub-corpora (generated)
+│   └── 
+│   ├── pretrained_word2vec_vectors
+│   ├── en_decade_corpus/           # Decade-level sub-corpora (generated)
 │
 ├── corpus_preparation/                # Aggregate HMD + LwM into decade files
 │   ├── aggregate_and_partition.py
 │   ├── count_tokens_and_terms.py
 │   ├── decade_term_frequencies.csv
+│   ├── extract_corpus_metadata.py
 │   └── aggregation_report.txt
 │
 ├── static_embeddings/                 # Static Word2Vec analysis (RQ1)
