@@ -29,6 +29,7 @@ From-Plantation-to-Pantry/
 │       └── top30_newspapers_by_article_count.csv   # Top 30 newspapers by volume
 │
 ├── corpus_preparation/                # Aggregate HMD + LwM into decade files
+│   ├── README.md
 │   ├── aggregate_and_partition.py
 │   ├── count_tokens_and_terms.py
 │   ├── decade_term_frequencies.csv
@@ -36,9 +37,13 @@ From-Plantation-to-Pantry/
 │   └── aggregation_report.txt
 │
 ├── static_embeddings/                 # Static Word2Vec analysis (RQ1)
-│                                      # Cosine similarity, nearest neighbours, t-SNE
+│   ├── README.md
+│   ├── extract_neighbors.py            
+│   ├── visualize_semantic_trajectory.py                                  
+│   └── results/                                
 │
 ├── domain_adaptation/                 # Domain-adapt MacBERTh on newspaper corpus
+│   ├── README.md
 │   ├── create_subcorpus.py            # 1% stratified subcorpus for grid search
 │   ├── grid_search.py                 # 24-configuration hyperparameter search
 │   ├── finetune_macberth.py           # Full-corpus training (best config)
@@ -47,6 +52,7 @@ From-Plantation-to-Pantry/
 │   └── full_corpus_training_info.json
 │
 ├── embedding_extraction/              # Extract and analyse contextualised embeddings (RQ2)
+│   ├── README.md
 │   ├── gen_macberth.py                # MacBERTh wrapper
 │   ├── embeddings_extraction.py       # Extract target-word embeddings
 │   └── analysis/
@@ -57,6 +63,7 @@ From-Plantation-to-Pantry/
 │       └── output/                           # CSVs, plots, cluster contexts
 │
 └── domain_adaptation_evaluation/      # PCA comparison: pretrained vs adapted
+    ├── README.md
     ├── pca_pretrained_vs_adapted.py
     └── pca_plots/
 ```
