@@ -3,8 +3,8 @@ from collections import Counter
 import re
 
 # Configuration
-corpus_dir = "/data/groups/trifecta/jiaqiz/british_newspapers/en_decade_corpus"
-target_terms = ["coffee", "tea", "sugar", "opium", "cocoa", "tobacco"]
+corpus_dir = ".../en_decade_corpus" #change it to your path
+target_terms = ["coffee", "tea", "sugar", "opium", "cocoa", "tobacco"] #change it to your words
 
 # Results storage
 results = {}
