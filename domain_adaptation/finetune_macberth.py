@@ -67,7 +67,7 @@ torch.set_num_threads(8)
 torch.backends.cudnn.benchmark = True
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
-dir_in = "/data/groups/trifecta/jiaqiz/british_newspapers"
+dir_in = "..." #change it to your path
 dir_corpus = os.path.join(dir_in, "en_decade_corpus")
 dir_out = os.path.join(dir_in, "output")
 
