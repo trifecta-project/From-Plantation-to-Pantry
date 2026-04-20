@@ -2,7 +2,7 @@
 
 This directory contains the pipeline for domain-adapting MacBERTh ([Manjavacas Arevalo & Fonteyn, 2021](https://aclanthology.org/2021.nlp4dh-1.4/)) to our nineteenth-century British newspaper corpus via continued pretraining with masked language modelling (MLM).
 
-The code is adapted from the fine-tuning scripts in the [LatinISE project](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change) by Barbara McGillivray and colleagues. Their pipeline performs grid search and domain adaptation for the LatinBERT model on classical Latin corpora. Because their classical Latin dataset is substantially smaller than ours (~4.65 billion tokens), we adapted the approach by conducting the hyperparameter grid search on a 1% stratified subcorpus rather than on the full data.
+The code is adapted from the fine-tuning scripts in the [LatinISE project](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change) by Barbara McGillivray and Valentina Lunardi. Their pipeline performs grid search and domain adaptation for the LatinBERT model on classical Latin corpora. Because their classical Latin dataset is substantially smaller than ours (~4.65 billion tokens), we adapted the approach by conducting the hyperparameter grid search on a 1% stratified subcorpus rather than on the full data.
 
 ## Files
 
