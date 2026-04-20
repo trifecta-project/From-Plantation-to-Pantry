@@ -104,7 +104,7 @@ The pipeline produces the following outputs mapped to the paper:
 
 This code builds on and adapts work from:
 
-- **[LatinISE](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change)** (Barbara McGillivray and colleagues) — embedding extraction wrapper, clustering analysis pipeline, and domain-adaptation architecture
+- **[LatinISE](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change)** (Barbara McGillivray and Valentina Lunardi) — embedding extraction wrapper, clustering analysis pipeline, and domain-adaptation architecture
 - **[UiO-UvA SemEval-2020](https://github.com/akutuzov/semeval2020)** (Andrey Kutuzov and Mario Giulianelli) — Affinity Propagation-based JSD computation
 - **[diachronicBert](https://github.com/wendyqiu/diachronicBert)** (Wendy Qiu) — PCA visualisation for domain-adaptation evaluation
 - **[Pedrazzini & McGillivray (2022)](https://github.com/Living-with-machines/DiachronicEmb-BigHistData)** — pretrained and aligned Word2Vec vectors on HMD + LwM
