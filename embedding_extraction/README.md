@@ -2,7 +2,7 @@
 
 This directory contains the pipeline for extracting contextualised embeddings from MacBERTh for the six target commodity terms, clustering them to identify usage types, extracting representative snippets, and computing Jensen–Shannon Divergence (JSD) between consecutive decades.
 
-The embedding extraction and clustering analysis code is adapted from the [LatinISE project](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change) by Barbara McGillivray and colleagues, which provides a pipeline for extracting and analysing contextualised embeddings from BERT models for historical semantic change research. The JSD computation follows [Kutuzov & Giulianelli (2020)](https://aclanthology.org/2020.semeval-1.14/) and is based on their [released code](https://github.com/akutuzov/semeval2020/blob/master/code/jsd.py).
+The embedding extraction and clustering analysis code is adapted from the [LatinISE project](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change) by Barbara McGillivray and Valentina Lunardi, which provides a pipeline for extracting and analysing contextualised embeddings from BERT models for historical semantic change research. The JSD computation follows [Kutuzov & Giulianelli (2020)](https://aclanthology.org/2020.semeval-1.14/) and is based on their [released code](https://github.com/akutuzov/semeval2020/blob/master/code/jsd.py).
 
 This is the core analytical pipeline of the paper, producing the data behind Tables 3, 4, 5–10, and Figures 8 and 9.
 
