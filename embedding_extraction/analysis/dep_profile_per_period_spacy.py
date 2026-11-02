@@ -29,13 +29,15 @@ Above --max-table-cols groups, the LaTeX table is written one row per group.
 
 Usage
 -----
-python dep_profile_per_period_spacy.py --words coffee tea sugar \
+# per decade (10-year bins of the yearly clusters)
+python dep_profile_across_periods.py --words coffee tea sugar \
     --csv-dir <output dir of cluster_jsd_by_period.py> \
-    --group-by period --period-width 10 --out-dir <output dir>
+    --group-by period --period-width 10 --out-dir results/dependencies_by_period
 
-python dep_profile_per_period_spacy.py --words coffee tea sugar \
+# per cluster
+python dep_profile_across_periods.py --words coffee tea sugar \
     --csv-dir <output dir of cluster_jsd_by_period.py> \
-    --group-by cluster --out-dir <output dir>
+    --group-by cluster --out-dir results/dependencies_by_cluster
 """
 
 import os
