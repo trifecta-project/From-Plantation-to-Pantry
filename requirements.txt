@@ -1,1 +1,19 @@
+# Corpus preparation, analysis and plotting
+numpy
+scipy
+pandas
+scikit-learn
+matplotlib
+h5py
+tqdm
+
+# Domain adaptation and embedding extraction (GPU recommended)
+torch
+transformers
+
+# Dependency parsing (then: python -m spacy download en_core_web_sm)
+spacy
+
+# Static embeddings
+gensim
 
