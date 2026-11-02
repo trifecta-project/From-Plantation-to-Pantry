@@ -1,108 +1,113 @@
 # Corpus Preparation
 
-This directory contains scripts for aggregating the Heritage Made Digital (HMD) and Living with Machines (LwM) newspaper collections into decade-level sub-corpora, computing token and target-term frequencies, and extracting corpus metadata from the XML files.
+This directory contains the scripts that turn the British Library's Heritage Made Digital (HMD) and Living with Machines (LwM) newspaper collections into the sub-corpora used in the paper, and that describe the resulting corpus.
+
+The corpus is built at year level: one sub-corpus per year, 1801–1919. The decade sub-corpora used for domain adaptation are built from the year sub-corpora, so both levels contain exactly the same articles.
 
 ## Files
 
 | File | Description |
 |---|---|
-| `aggregate_and_partition.py` | Main aggregation script: scans both HMD and LwM plaintext directories, extracts publication years from file paths, and writes one text file per decade to `data/en_decade_corpus/` |
-| `count_tokens_and_terms.py` | Counts total tokens and frequencies of the six target commodity terms (*coffee*, *tea*, *sugar*, *opium*, *cocoa*, *tobacco*) per decade, outputs raw and normalised (per-million) frequencies |
-| `extract_corpus_metadata.py` | Parses all `*_metadata.xml` files from both HMD and LwM metadata directories to extract newspaper titles, locations, dates, OCR quality scores, and article types. Produces corpus overview statistics, a complete newspaper inventory, and London vs provincial breakdown |
-| `decade_term_frequencies.csv` | Output of `count_tokens_and_terms.py`: token counts and term frequencies per decade (both raw and per-million), used to produce Table 1 in the paper |
-| `aggregation_report.txt` | Output of `aggregate_and_partition.py`: summary statistics of the aggregation run, including article counts, token counts, and byte sizes per decade, broken down by source (HMD vs LwM) |
+| `aggregate_by_year.py` | Builds the year sub-corpora from the HMD and LwM plaintext files and writes the aggregation report and statistics |
+| `build_decade_corpus.py` | Concatenates the year sub-corpora into decade sub-corpora for domain adaptation |
+| `extract_corpus_metadata.py` | Extracts newspaper titles, locations, dates, OCR quality and article types from the XML metadata files |
+| `plot_counts_by_year.py` | Plots the number of occurrences of each target term per year |
+| `aggregation_report.txt` | Human-readable summary of the aggregation run: articles, tokens and HMD/LwM split per year and per decade |
 
 ## Pipeline
 
-### Step 1: Aggregate and partition
+```
+HMD + LwM plaintext ──> aggregate_by_year.py ──> data/en_year_corpus/{year}/en_{year}.txt
+                                                        │
+                                                        └──> build_decade_corpus.py ──> data/en_decade_corpus/{decade}.txt
 
-Requires the raw HMD and LwM plaintext directories (see `data/README.md` for download instructions).
+HMD + LwM metadata ───> extract_corpus_metadata.py ──> corpus composition CSVs
+
+embedding extraction ─> frequency_summary.csv ──> plot_counts_by_year.py ──> occurrences per year figure
+```
+
+### Step 1: Build the year sub-corpora
+
+Requires the HMD and LwM plaintext directories (see `data/README.md` for download instructions).
 
 ```bash
-python aggregate_and_partition.py \
+python aggregate_by_year.py \
     --lwm /path/to/lwm-alto2txt/plaintext \
     --hmd /path/to/hmd-alto2txt/plaintext \
-    --output ../data/en_decade_corpus \
-    --workers 4
+    --output ../data/en_year_corpus \
+    --workers 16
 ```
 
-**What it does:**
-- Scans all `.txt` files under both plaintext directories (~9 million files total)
-- Extracts the publication year from each file path using the British Library alto2txt naming convention (e.g., `0003038_18990929_art0087.txt` → year 1899)
-- Writes all text from each decade into a single file: `en_1800s.txt`, `en_1810s.txt`, ..., `en_1910s.txt`
-- Generates `aggregation_report.txt` (human-readable summary) and `aggregation_stats.json` (machine-readable statistics)
+The script:
 
-**Key statistics from our run** (from `aggregation_report.txt`):
-- Files processed: 7,982,524
-- Files skipped: 1,399,130 (empty, too short, or year not extractable)
-- Total articles aggregated: 7,927,079
-- Total tokens: ~5.62 billion
-- Period covered: 1801–1919
+- scans all plaintext files in both collections (~9.3 million) in a single directory traversal;
+- extracts each article's publication year from its file name, following the alto2txt naming convention (`0003038_18990929_art0087.txt` → 1899), with the `{newspaper_id}/{YYYY}/{MMDD}/` directory structure as a fallback;
+- discards files that are empty, shorter than 50 characters, or whose year cannot be determined or falls outside 1800–1919;
+- writes each remaining article as one line, with internal whitespace collapsed, to `{year}/en_{year}.txt`;
+- writes `aggregation_report.txt` and `aggregation_stats.json` to the output directory.
 
-### Step 2: Count tokens and term frequencies
+`--start-year` and `--end-year` change the year range; `--keep-empty-years` keeps folders for years with no articles.
 
-Requires the decade sub-corpora generated in Step 1.
+In our run, 7,927,079 articles (about 5.62 billion whitespace-delimited tokens) were written to 119 year sub-corpora, 1801–1919, and 1,399,131 files were skipped. The per-year counts are in `data/en_year_corpus/aggregation_stats.json`.
+
+Processing takes several hours, depending mostly on disk speed.
+
+### Step 2: Build the decade sub-corpora
+
+Requires the year sub-corpora from Step 1.
 
 ```bash
-python count_tokens_and_terms.py
+python build_decade_corpus.py \
+    --year-dir ../data/en_year_corpus \
+    --output ../data/en_decade_corpus
 ```
 
-**Note:** Update the `corpus_dir` variable at the top of the script to point to your local `en_decade_corpus/` directory before running.
-
-**What it does:**
-- Reads each decade file and tokenises using whitespace and basic punctuation boundaries
-- Counts total tokens per decade
-- Counts occurrences of the six target terms: *coffee*, *tea*, *sugar*, *opium*, *cocoa*, *tobacco*
-- Computes normalised frequencies (per million tokens)
-- Saves all results to `decade_term_frequencies.csv`
-
-**Output columns in `decade_term_frequencies.csv`:**
-
-| Column | Description |
-|---|---|
-| `decade` | Decade label (e.g., `1800`, `1810`, ..., `1910`) |
-| `total_tokens` | Total token count for that decade |
-| `coffee`, `tea`, ..., `tobacco` | Raw frequency of each target term |
-| `coffee_per_million`, ..., `tobacco_per_million` | Frequency normalised per million tokens |
+This concatenates the year files of each decade, in year order, into `1800.txt`, `1810.txt`, …, `1910.txt` — the file names that `domain_adaptation/` and `embedding_extraction/` read. Each decade file contains exactly the articles of its years. Line order follows the years, so it can differ from that of decade files built directly from the source collections; random samples drawn from the files with a fixed seed can therefore differ too.
 
 ### Step 3: Extract corpus metadata
 
-Requires the HMD and LwM metadata directories (the `metadata/` subdirectories alongside the `plaintext/` directories).
+Requires the HMD and LwM metadata directories (the `metadata/` directories next to `plaintext/`).
 
 ```bash
 python extract_corpus_metadata.py \
     --hmd /path/to/hmd-alto2txt/metadata \
     --lwm /path/to/lwm-alto2txt/metadata \
-    --output ../data \
+    --output ../data/en_decade_corpus \
     --workers 8
 ```
 
-**What it does:**
-- Parses all `*_metadata.xml` files (~9 million files) from both collections
-- Extracts per-article: newspaper title, BL identifier, location, publication date, article type, word count, and OCR confidence score
-- Classifies each article as London or provincial based on location
-- Aggregates by decade and by newspaper title
+The script parses every `*_metadata.xml` file and extracts, per article, the newspaper title, BL identifier, place of publication, date, article type, word count and OCR confidence score. It classifies each article as London or provincial by place of publication and aggregates by decade and by title. It writes:
 
-**Runtime:** 30–90 minutes depending on disk speed. The bottleneck is disk I/O (reading millions of small XML files); the parsing and aggregation are fast.
-
-**Outputs** (saved to `data/`):
-
-| File | Description |
+| File | Contents |
 |---|---|
-| `corpus_overview.csv` | Per-decade summary: articles, words, HMD/LwM split, number of titles, London percentage, OCR quality (mean and median) |
-| `newspaper_inventory.csv` | Complete inventory of all 120 newspaper titles with BL ID, location, collection, and article count |
-| `top30_newspapers_by_article_count.csv` | The 30 largest newspapers by volume |
+| `corpus_overview_by_decade.csv` | Articles, words, HMD/LwM split, number of titles, London/provincial split and OCR quality per decade |
+| `newspaper_inventory.csv` | Every title with BL ID, location, collection, total articles, first and last decade, and articles per decade |
+| `newspaper_summary_for_paper.csv` | Every title with BL ID, location, collection, total articles and decades covered |
+| `ocr_quality_by_decade.csv` | OCR confidence statistics per decade |
+| `item_types_by_decade.csv` | Article types per decade |
 
-**Key findings from the metadata** (discussed in the paper's Data Bias limitation):
-- The corpus comprises 120 newspaper titles: 17 London-based (HMD) and 103 provincial (LwM)
-- London articles account for 100% of the 1810s–1820s but 0% from the 1880s onward
-- Mean OCR quality rises from 0.69 (1800s) to 0.86 (1870s+)
-- *The Sun* alone contributes 1.6 million articles (~17% of the corpus)
+`--sample N` processes a random sample of N files, for testing. Processing the full collections takes 30–90 minutes; reading millions of small XML files is the bottleneck.
 
-## Relationship to the Paper
+### Step 4: Plot occurrences per year
 
-- **Table 1** (Number of tokens per decade) is derived from the `total_tokens` column in `decade_term_frequencies.csv`. Note that minor differences between the token counts here and in Table 1 may arise from different tokenisation approaches (this script uses a simple regex tokeniser; the Word2Vec training used Gensim's tokenisation).
-- **Section 3** (Data and Models) references the corpus composition statistics from `corpus_overview.csv` and cites the newspaper inventory documented in [Ridge and Pedrazzini (2024)](https://livingwithmachines.ac.uk/public-domain-newspaper-titles-in-living-with-machines/).
-- **Section 7** (Data Bias limitation) draws on the London percentage, OCR quality trends, and the dominance of *The Sun* to characterise the corpus's asymmetric coverage.
-- **`aggregation_report.txt`** documents the provenance of the corpus: how many files were processed, how many were skipped, and the contribution of each source (HMD vs LwM) per decade.
-- The decade sub-corpora produced by Step 1 are the input to both the **static embedding analysis** (via the pretrained Word2Vec vectors from Pedrazzini & McGillivray 2022, which were trained on the same data) and the **domain adaptation** of MacBERTh (see `domain_adaptation/`).
+Requires the `frequency_summary.csv` files written by the embedding extraction (see `embedding_extraction/`), which record how many occurrences of each target word were found and embedded per year.
+
+```bash
+python plot_counts_by_year.py \
+    --csv /path/to/commodity_extraction/frequency_summary.csv \
+          /path/to/control_word_extraction/frequency_summary.csv \
+    --words coffee tea sugar water stone \
+    --out embeddings_over_time_yearly.png
+```
+
+The figure shows one line per term on a log scale; the control words (*water*, *stone*) are drawn dashed. `--column embeddings_saved` plots the number of embeddings written rather than the number of occurrences found, `--linear` uses a linear scale, and `--plain` draws the control words like the commodity terms. The script also prints, per word, the number of years, the minimum, maximum and total count, and the peak year.
+
+## Outputs and Where They Are
+
+| Output | Location |
+|---|---|
+| Year sub-corpora (`en_YYYY.txt`) | `data/en_year_corpus/` — generated locally, not in the repository |
+| `aggregation_stats.json` | `data/en_year_corpus/` |
+| `aggregation_report.txt` | this directory |
+| Decade sub-corpora (`1800.txt` …) | `data/en_decade_corpus/` — generated locally, not in the repository |
+| Corpus composition CSVs and newspaper figure | `data/en_decade_corpus/` |
