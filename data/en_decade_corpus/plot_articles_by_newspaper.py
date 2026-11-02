@@ -117,9 +117,10 @@ def main():
     ap.add_argument("--ncols", type=int, default=None,
                     help="panels per row (default 5 for more than 8 panels, else 4)")
     ap.add_argument("--name-map", default=None,
-                    help="optional CSV with columns newspaper_id,title -- if "
-                         "given, panels use human-readable titles instead of "
-                         "raw BL ids")
+                    help="optional CSV mapping BL ids to titles, with columns "
+                         "newspaper_id,title or BL_ID,Title (e.g. "
+                         "top30_newspapers_by_article_count.csv) -- if given, "
+                         "panels use human-readable titles instead of raw BL ids")
     ap.add_argument("--title-fontsize", type=float, default=8.5,
                     help="panel heading size (default 8.5)")
     ap.add_argument("--max-title-lines", type=int, default=3,
@@ -154,8 +155,13 @@ def main():
     name_map = {}
     if args.name_map:
         with open(args.name_map, newline="", encoding="utf-8") as fh:
+            # Accepts either newspaper_id,title or the BL_ID,Title columns of
+            # top30_newspapers_by_article_count.csv.
             for row in csv.DictReader(fh):
-                name_map[row["newspaper_id"]] = row["title"]
+                np_id = row.get("newspaper_id") or row.get("BL_ID")
+                title = row.get("title") or row.get("Title")
+                if np_id and title:
+                    name_map[np_id] = title
 
     switch_idx = None
     if args.mark_source_transition:
