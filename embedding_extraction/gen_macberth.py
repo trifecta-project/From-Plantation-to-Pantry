@@ -17,21 +17,35 @@ class MacBERTh:
     Similar interface to the LatinBERT class from gen_berts.py.
     """
 
-    def __init__(self, model_name="emanjavacas/MacBERTh"):
+    def __init__(self, model_name="emanjavacas/MacBERTh", layer_mode="last"):
         """
         Initialize MacBERTh model and tokenizer.
-        
+
         Args:
-            model_name (str): HuggingFace model name or path to fine-tuned model.
+            model_name: HF model name or local fine-tuned path
+            layer_mode:
+                last      -> last hidden layer only
+                first4    -> average first 4 layers
+                last4     -> average last 4 layers
+                all       -> average all layers
         """
+
         print(f"Loading MacBERTh from {model_name}...")
         print(f"Using device: {device}")
-        
+        print(f"Layer mode: {layer_mode}")
+
+        self.layer_mode = layer_mode
+
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = BertMacBERTh(model_name=model_name)
+
+        self.model = BertMacBERTh(
+            model_name=model_name,
+            layer_mode=layer_mode
+        )
+
         self.model.to(device)
         self.model.eval()
-        
+
         print("MacBERTh loaded successfully.")
 
     def get_batches(self, sentences, max_batch, max_seq_length=510):
@@ -229,27 +243,62 @@ class BertMacBERTh(nn.Module):
     Equivalent to BertLatin class.
     """
 
-    def __init__(self, model_name="emanjavacas/MacBERTh"):
+    def __init__(self, model_name="emanjavacas/MacBERTh",
+                 layer_mode="last"):
+
         super(BertMacBERTh, self).__init__()
-        self.bert = AutoModel.from_pretrained(model_name)
+
+        self.layer_mode = layer_mode
+
+        self.bert = AutoModel.from_pretrained(
+            model_name,
+            output_hidden_states=True
+        )
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, transforms=None):
+
         input_ids = input_ids.to(device)
         attention_mask = attention_mask.to(device)
         transforms = transforms.to(device)
 
         outputs = self.bert.forward(
-            input_ids, 
-            token_type_ids=None, 
-            attention_mask=attention_mask
+            input_ids,
+            token_type_ids=None,
+            attention_mask=attention_mask,
+            output_hidden_states=True
         )
-        
-        sequence_outputs = outputs["last_hidden_state"]
-        
-        # Apply transform matrix to map subword embeddings to word embeddings
-        out = torch.matmul(transforms, sequence_outputs)
-        return out
 
+        hidden_states = outputs.hidden_states
+
+        if self.layer_mode == "last":
+            sequence_outputs = hidden_states[-1]
+
+        elif self.layer_mode == "first4":
+            sequence_outputs = torch.stack(
+                hidden_states[1:5]
+            ).mean(dim=0)
+
+        elif self.layer_mode == "last4":
+            sequence_outputs = torch.stack(
+                hidden_states[-4:]
+            ).mean(dim=0)
+
+        elif self.layer_mode == "all":
+            sequence_outputs = torch.stack(
+                hidden_states[1:]
+            ).mean(dim=0)
+
+        else:
+            raise ValueError(
+                f"Unknown layer mode: {self.layer_mode}"
+            )
+
+        out = torch.matmul(
+            transforms,
+            sequence_outputs
+        )
+
+        return out
 
 def convert_to_toks(sents, max_words=200):
     """
