@@ -7,13 +7,13 @@ This directory documents the newspaper corpus used in the paper: where the sourc
 ```
 data/
 ├── README.md
-├── en_year_corpus/      # Year-level sub-corpora (1801–1919) and their statistics
+├── en_year_corpus/      # Year-level sub-corpora (1801–1919) and aggregation statistics
 └── en_decade_corpus/    # Decade-level sub-corpora, corpus metadata and newspaper inventory
 ```
 
 | Folder | Contents | Used for |
 |---|---|---|
-| [`en_year_corpus/`](en_year_corpus/) | One text file per year; per-year article, token and target-term counts | Semantic change analysis |
+| [`en_year_corpus/`](en_year_corpus/) | One text file per year; articles, tokens and HMD/LwM split per year | Semantic change analysis |
 | [`en_decade_corpus/`](en_decade_corpus/) | One text file per decade; corpus composition from the XML metadata, newspaper inventory, articles per newspaper | Domain adaptation of MacBERTh; description of the corpus |
 
 Each folder has its own README describing its files and how to regenerate them.
@@ -57,15 +57,13 @@ python corpus_preparation/aggregate_by_year.py \
     --output ./data/en_year_corpus \
     --workers 16
 
-# Decade sub-corpora
-python corpus_preparation/aggregate_and_partition.py \
-    --lwm /path/to/lwm-alto2txt/plaintext \
-    --hmd /path/to/hmd-alto2txt/plaintext \
-    --output ./data/en_decade_corpus \
-    --workers 4
+# Decade sub-corpora, built from the year sub-corpora
+python corpus_preparation/build_decade_corpus.py \
+    --year-dir ./data/en_year_corpus \
+    --output ./data/en_decade_corpus
 ```
 
-Each run processes about 9 million files and takes several hours depending on disk speed. `corpus_preparation/README.md` describes all steps, including metadata extraction and frequency counting.
+Building the year sub-corpora processes about 9.3 million files and takes several hours depending on disk speed. `corpus_preparation/README.md` describes all steps, including metadata extraction.
 
 ## Pretrained Word2Vec Vectors
 
@@ -83,3 +81,4 @@ unzip lwm_vectors.zip -d vectors/
 ## Licensing
 
 The HMD and LwM datasets are released by the British Library. Please consult the dataset pages linked above for licensing terms and conditions of use.
+
