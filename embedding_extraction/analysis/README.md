@@ -4,7 +4,7 @@ This directory contains the analysis of the occurrence embeddings extracted in `
 
 1. **Sense clustering and change measurement** (`cluster_jsd_by_period.py`). All occurrence embeddings of a word are clustered once, across all periods, into a shared inventory of clusters. Each period's cluster distribution is then compared with the next period's by Jensen–Shannon divergence (JSD), tested against sampling noise by permutation.
 2. **Plotting the change** (`plot_jsd.py`): the JSD series per word, with the permutation noise floor.
-3. **Dependency parsing** (`dep_profile_per_period_spacy.py`): the syntactic relations of each word per cluster or per period, as independent evidence for what the clusters and their shifts represent.
+3. **Dependency parsing** (`dep_profile_across_periods.py`): the syntactic relations of each word per cluster or per period, as independent evidence for what the clusters and their shifts represent.
 
 ## Files
 
@@ -12,7 +12,8 @@ This directory contains the analysis of the occurrence embeddings extracted in `
 |---|---|
 | `cluster_jsd_by_period.py` | Shared k-means clustering of one word's embeddings over all periods; cluster distributions per period; JSD between consecutive periods with a permutation test; representative snippets per cluster; stacked composition plot |
 | `plot_jsd.py` | Per-word and combined JSD plots from the CSVs of `cluster_jsd_by_period.py` |
-| `dep_profile_per_period_spacy.py` | spaCy dependency profiles of each word per cluster or per period, from the per-occurrence CSV of `cluster_jsd_by_period.py` |
+| `dep_profile_across_periods.py` | spaCy dependency profiles of each word per cluster or per period, from the per-occurrence CSV of `cluster_jsd_by_period.py` |
+| `results/` | The outputs reported in the paper: `clusters/` (Step 1), `dependencies_by_period/` and `dependencies_by_cluster/` (Step 3) |
 
 ## Requirements
 
@@ -82,14 +83,18 @@ Writes `perword_jsd_<word>.png` for each word and, with `--combined`, `jsd_all_w
 Requires `cluster_all_snippets_<word>.csv` from Step 1 (run with `--all-snippets`).
 
 ```bash
-# per cluster
-python dep_profile_per_period_spacy.py --words coffee tea sugar \
-    --csv-dir /path/to/clusters --group-by cluster --out-dir /path/to/deps
+# per decade (10-year bins of the yearly clusters)
+python dep_profile_across_periods.py --words coffee tea sugar \
+    --csv-dir results/clusters --group-by period --period-width 10 \
+    --out-dir results/dependencies_by_period
 
-# per decade
-python dep_profile_per_period_spacy.py --words coffee tea sugar \
-    --csv-dir /path/to/clusters --group-by period --period-width 10 --out-dir /path/to/deps
+# per cluster
+python dep_profile_across_periods.py --words coffee tea sugar \
+    --csv-dir results/clusters --group-by cluster \
+    --out-dir results/dependencies_by_cluster
 ```
+
+These are the two runs reported in the paper (with the default `--min-count 3`, `--relations amod compound compound-of verb` and `en_core_web_sm`).
 
 ### What it does
 
