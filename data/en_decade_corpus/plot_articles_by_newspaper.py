@@ -137,11 +137,10 @@ def main():
                          "corpus's dominant source (LWM vs HMD) switches. "
                          "Requires --aggregation-stats for an accurate result.")
     ap.add_argument("--aggregation-stats", default=None,
-                    help="path to aggregation_stats.json (from "
-                         "aggregate_by_year.py or aggregate_and_partition.py), "
-                         "holding the per-FILE source breakdown per year or "
-                         "decade. Required for --mark-source-transition (see "
-                         "source_switch_index).")
+                    help="path to aggregation_stats.json from "
+                         "aggregate_by_year.py, holding the per-FILE source "
+                         "breakdown per year (decade keys also work). Required "
+                         "for --mark-source-transition (see source_switch_index).")
     ap.add_argument("--figsize", default=None,
                     help="WIDTHxHEIGHT in inches; default scales with the grid")
     ap.add_argument("--dpi", type=int, default=200)
