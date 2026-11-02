@@ -65,11 +65,16 @@ def source_switch_index(aggregation_stats_path):
     def series(*aliases):
         for a in aliases:
             if a in folded:
-                raw = folded[a]
-                out = {}
-                for d in DECADES:
-                    bare = d.rstrip("s")
-                    out[d] = raw.get(d, raw.get(bare, raw.get(int(bare), 0)))
+                # Keys may be decades ("1860s"/"1860") or single years
+                # ("1861", from aggregate_by_year.py); either way, sum every
+                # key into the decade it falls in.
+                out = {d: 0 for d in DECADES}
+                for k, v in folded[a].items():
+                    digits = str(k).strip().rstrip("s")
+                    if digits.isdigit():
+                        d = f"{int(digits) // 10 * 10}s"
+                        if d in out:
+                            out[d] += int(v)
                 return out
         return None
 
@@ -132,10 +137,11 @@ def main():
                          "corpus's dominant source (LWM vs HMD) switches. "
                          "Requires --aggregation-stats for an accurate result.")
     ap.add_argument("--aggregation-stats", default=None,
-                    help="path to the aggregation stats JSON from the ORIGINAL "
-                         "aggregate_and_partition.py run, holding the per-FILE "
-                         "source breakdown per decade. Required for "
-                         "--mark-source-transition (see source_switch_index).")
+                    help="path to aggregation_stats.json (from "
+                         "aggregate_by_year.py or aggregate_and_partition.py), "
+                         "holding the per-FILE source breakdown per year or "
+                         "decade. Required for --mark-source-transition (see "
+                         "source_switch_index).")
     ap.add_argument("--figsize", default=None,
                     help="WIDTHxHEIGHT in inches; default scales with the grid")
     ap.add_argument("--dpi", type=int, default=200)
