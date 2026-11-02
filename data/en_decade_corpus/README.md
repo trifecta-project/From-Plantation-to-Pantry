@@ -14,6 +14,7 @@ en_decade_corpus/
 ├── corpus_overview.csv                     # Per-decade corpus composition (from XML metadata)
 ├── newspaper_inventory.csv                 # All 120 newspaper titles in the corpus
 ├── top30_newspapers_by_article_count.csv   # The 30 largest titles by article count
+├── aggregation_stats.json                  # Articles, tokens and HMD/LwM split per year
 ├── articles_by_newspaper_decade.csv        # Articles per title per decade (input to the figure)
 ├── plot_articles_by_newspaper.py           # Draws articles_by_newspaper.png
 ├── articles_by_newspaper.png               # Articles per decade for the 10 largest titles
@@ -61,6 +62,37 @@ The inventory contains 21 HMD and 99 LwM titles. By place of publication, 17 tit
 
 The 30 largest titles by article count, with BL ID, collection, location and title. The largest single contributor is *The Sun* (BL ID 0002194, London, HMD) with 1,625,117 articles, about 17% of all articles in the source collections.
 
+## Aggregation and Newspaper Counts
+
+### `aggregation_stats.json`
+
+Machine-readable statistics written by `corpus_preparation/aggregate_by_year.py` when it built the year sub-corpora (see `data/en_year_corpus/`). All counts are per year, 1801–1919, and cover only the articles written to the sub-corpora.
+
+| Key | Description |
+|---|---|
+| `articles_by_year` | Number of articles per year |
+| `tokens_by_year` | Whitespace-delimited tokens per year |
+| `bytes_by_year` | Size of the source plaintext files per year, in bytes |
+| `by_source` | Articles per year from each collection, under `HMD` and `LWM` |
+| `files_processed` | Files written to the sub-corpora (7,927,079) |
+| `files_skipped` | Files discarded as empty, too short, or undatable (1,399,131) |
+| `generated` | Timestamp of the run |
+
+Summed by decade, these counts match the decade aggregation in `corpus_preparation/aggregation_report.txt`. The plotting script uses the `by_source` counts to place the HMD → LwM transition line in the figure below.
+
+### `articles_by_newspaper_decade.csv`
+
+Number of articles per newspaper title per decade, counted from the plaintext file paths of both collections (`{newspaper_id}/{YYYY}/{MMDD}/...`) before any filtering. It is the input to the figure below.
+
+| Column | Description |
+|---|---|
+| `newspaper_id` | British Library identifier |
+| `source` | Collection directory the title was found in (`HMD` or `LWM`) |
+| `1800s` … `1910s` | Articles in each decade |
+| `total` | Articles across all decades |
+
+Because it counts files before filtering, its totals (9,326,201 articles over 121 titles) are close to the XML-metadata figures in `newspaper_inventory.csv` rather than to the aggregated corpus. A title found under both collection directories is assigned a single `source`, so for the per-collection split use `aggregation_stats.json` instead.
+
 ## Articles per Newspaper
 
 `articles_by_newspaper.png` shows the number of articles per decade for the ten largest titles, one panel per title, with every other title drawn behind it in grey on a shared vertical scale. The dashed line marks the decade boundary (1860s/1870s) at which the dominant source collection switches from HMD to LwM. The figure makes visible how strongly the early decades depend on a few London titles, *The Sun* above all, and how the corpus becomes a broad spread of provincial titles from the 1870s onward.
@@ -73,7 +105,7 @@ python plot_articles_by_newspaper.py \
     --top-n 10 \
     --name-map top30_newspapers_by_article_count.csv \
     --mark-source-transition \
-    --aggregation-stats ../../corpus_preparation/aggregation_stats.json \
+    --aggregation-stats aggregation_stats.json \
     --out articles_by_newspaper.png
 ```
 
@@ -87,7 +119,8 @@ The corpus statistics in this repository come from two sources and differ for th
 |---|---|---|
 | XML metadata (`newspaper_inventory.csv`, `corpus_overview.csv`) | 9,326,170 | Every article in both collections, including the 1920s |
 | XML metadata, 1800s–1910s only | 9,261,501 | As above, without the 1920s |
-| Aggregation (`corpus_preparation/aggregation_report.txt`) | 7,927,079 | Articles written to the sub-corpora |
+| File paths (`articles_by_newspaper_decade.csv`) | 9,326,201 | Every plaintext file, before filtering |
+| Aggregation (`aggregation_stats.json`, `corpus_preparation/aggregation_report.txt`) | 7,927,079 | Articles written to the sub-corpora |
 
 The aggregation step drops files that are empty, shorter than 50 characters, or whose publication year cannot be determined or falls outside 1800–1919 (1,399,130 files skipped in our run). Token counts likewise differ between the XML metadata (`Words`) and the re-tokenised counts in `corpus_preparation/decade_term_frequencies.csv`.
 
