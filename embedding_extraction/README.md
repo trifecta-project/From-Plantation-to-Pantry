@@ -1,75 +1,102 @@
 # Embedding Extraction and Analysis
 
-This directory contains the pipeline for extracting contextualised embeddings from MacBERTh for the six target commodity terms, clustering them to identify usage types, extracting representative snippets, and computing Jensen–Shannon Divergence (JSD) between consecutive decades.
+This directory contains the pipeline that extracts a contextualised embedding for every occurrence of the target commodity words from MacBERTh, and the analysis that clusters these embeddings and measures change between periods.
 
-The embedding extraction and clustering analysis code is adapted from the [LatinISE project](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change) by Barbara McGillivray and Valentina Lunardi, which provides a pipeline for extracting and analysing contextualised embeddings from BERT models for historical semantic change research. The JSD computation follows [Kutuzov & Giulianelli (2020)](https://aclanthology.org/2020.semeval-1.14/) and is based on their [released code](https://github.com/akutuzov/semeval2020/blob/master/code/jsd.py).
-
-This is the core analytical pipeline of the paper, producing the data behind Tables 3, 4, 5–10, and Figures 8 and 9.
+The extraction code is adapted from the [LatinISE project](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change) by Barbara McGillivray and Valentina Lunardi.
 
 ## Directory Structure
 
 ```
 embedding_extraction/
 ├── README.md
-├── gen_macberth.py                         # MacBERTh wrapper for embedding extraction
-├── embeddings_extraction.py                # Extract target-word embeddings per decade
-└── analysis/
-    ├── commodity_analysis_finetuned.py     # Clustering + visualisation (domain-adapted model)
-    ├── commodity_analysis_pretrained.py    # Clustering + visualisation (pretrained model)
-    ├── extract_contexts_visible_only.py    # Centroid-closest snippets with target-word filtering
-    ├── jsd.py                              # JSD computation via Affinity Propagation
-    └── output/
-        ├── csv/
-        │   ├── cluster_summary_detailed.csv        # Clustering statistics (Table 4)
-        │   ├── jsd_consecutive_decades.csv         # JSD between consecutive decades (Table 3)
-        │   └── jsd_vs_1910.csv                     # JSD of each decade vs 1910s reference
-        ├── PCA/
-        │   ├── pca_coffee_all_decades.png
-        │   ├── pca_tea_all_decades.png
-        │   ├── pca_sugar_all_decades.png           # Figure 9a in the paper
-        │   ├── pca_opium_all_decades.png
-        │   ├── pca_cocoa_all_decades.png           # Figure 9b in the paper
-        │   └── pca_tobacco_all_decades.png
-        ├── clusters/
-        │   ├── coffee/
-        │   │   ├── clusters_coffee_1840.png        # Figure 8a in the paper
-        │   │   ├── clusters_coffee_1850.png
-        │   │   ├── ...
-        │   │   └── clusters_coffee_1910.png        # Figure 8c in the paper
-        │   ├── tea/
-        │   │   ├── clusters_tea_1840.png
-        │   │   └── ...
-        │   ├── sugar/
-        │   ├── opium/
-        │   ├── cocoa/
-        │   └── tobacco/
-        │       ├── clusters_tobacco_1840.png
-        │       └── ...
-        └── cluster_contexts/
-            ├── coffee/
-            │   ├── contexts_coffee_1840.csv
-            │   ├── contexts_coffee_1850.csv
-            │   ├── ...
-            │   └── contexts_coffee_1910.csv
-            ├── tea/
-            ├── sugar/
-            ├── opium/
-            ├── cocoa/
-            │   ├── contexts_cocoa_1840.csv
-            │   └── ...
-            └── tobacco/
+├── gen_macberth.py            # MacBERTh wrapper: word-level embeddings from chosen hidden layers
+├── embeddings_extraction.py   # Extracts target-word embeddings per decade
+└── analysis/                  # Clustering, change measures and their outputs (see "Analysis" below)
 ```
 
-## Files
+## Embedding Extraction
 
-### Embedding extraction
+### Files
 
 | File | Description |
 |---|---|
-| `gen_macberth.py` | MacBERTh wrapper class. Handles tokenisation, subword-to-word alignment via transform matrices, and batched embedding extraction from the last hidden layer. Adapted from the `gen_berts.py` LatinBERT wrapper in the [LatinISE project](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change). Supports both the pretrained and domain-adapted MacBERTh |
-| `embeddings_extraction.py` | Main extraction script. For each decade, finds all sentences containing target words (*coffee*, *tea*, *sugar*, *opium*, *cocoa*, *tobacco*), extracts the last-hidden-layer embedding at the target word's position, and saves embeddings with snippets to HDF5 files. Supports checkpointing (skips words already extracted) |
+| `gen_macberth.py` | Wrapper around a HuggingFace BERT model (pretrained MacBERTh or a domain-adapted checkpoint). Tokenises each input into subwords, maps subword vectors back to words by averaging, and returns one 768-dimensional vector per word. `layer_mode` selects the hidden layers used: `last` (last layer), `last4` (mean of the last four layers), `first4` (mean of the first four) or `all` (mean of all layers). Adapted from the `gen_berts.py` LatinBERT wrapper of the LatinISE project |
+| `embeddings_extraction.py` | Finds every occurrence of the target words in each decade sub-corpus, embeds a window of words centred on it, and saves the target word's embedding with its context to one HDF5 file per decade |
 
-### Analysis
+### Requirements
+
+- The decade sub-corpora `1800.txt` … `1910.txt` in `data/en_decade_corpus/` (see `corpus_preparation/`).
+- The model: the domain-adapted checkpoint `output/scaling_experiment/config_A/epoch_3` (see `domain_adaptation/`) or the pretrained [`emanjavacas/MacBERTh`](https://huggingface.co/emanjavacas/MacBERTh).
+
+Set `dir_in` at the top of `embeddings_extraction.py` to your local data directory; the corpus is read from `dir_in/en_decade_corpus/` and the output written to `dir_in/output/`.
+
+### Running it
+
+The settings used in the paper:
+
+```bash
+# Domain-adapted model (Config A, epoch 3)
+python embeddings_extraction.py --model scaling_best --layer-mode last4 \
+    --variants spelling --context-window 50
+
+# Pretrained MacBERTh, for the comparison with the domain-adapted model
+python embeddings_extraction.py --model pretrained --layer-mode last4 \
+    --variants spelling --context-window 50
+```
+
+| Option | Values | Meaning |
+|---|---|---|
+| `--model` | `scaling_best` (default), `pretrained` | Domain-adapted checkpoint or pretrained MacBERTh |
+| `--layer-mode` | `last` (default), `last4`, `first4`, `all` | Hidden layers averaged into each embedding. The paper uses `last4`; the default `last` is kept for compatibility with earlier runs, so pass `--layer-mode last4` explicitly |
+| `--variants` | `none`, `spelling` (default) | `none` matches the singular only (*coffee*); `spelling` also matches the plural (*coffees*, *teas*, *sugars*) |
+| `--context-window` | integer, default 50 | Words of context kept on each side of the target |
+
+The output folder name records the settings, e.g. `output/embeddings_macberth_scaling_best_windowed_last4_spelling_w50/`. Words already present in a decade's HDF5 file are skipped, so an interrupted run can be resumed.
+
+### What it does
+
+1. **Finds occurrences.** Each line of a decade file (one article) is lower-cased and split on spaces; free-standing punctuation tokens are dropped. A token matches if it equals one of the target word's forms exactly. A token with punctuation attached, such as `coffee,` or `tea.`, therefore does not match, so occurrences directly followed or preceded by punctuation are not included.
+2. **Cuts a context window.** For each occurrence, the script keeps up to 50 words on each side of the target, so every occurrence is embedded in its own local context and the window stays well within the model's 512-token limit. An article containing a word several times yields one window per occurrence.
+3. **Embeds the window.** The window is passed through MacBERTh (via `gen_macberth.py`), and the vector at the target word's position is kept: the mean of the last four hidden layers (`last4`), averaged over the target word's subword tokens.
+4. **Saves** the embedding, the window text and the target's position in the window, in batches of 50 occurrences.
+
+The script extracts six commodity words: *coffee*, *tea*, *sugar*, *opium*, *cocoa* and *tobacco*. The paper analyses *coffee*, *tea* and *sugar*.
+
+### Output
+
+One HDF5 file per decade, `commodity_embeddings_{decade}.h5`:
+
+```
+commodity_embeddings_1840.h5          attrs: model, model_path, decade, variant_mode, context_window, layer_mode
+├── coffee/                           attrs: count, variants, variant_mode, context_window, layer_mode
+│   ├── usage_0/
+│   │   └── embedding                 (768,) float32, gzip-compressed
+│   │                                 attrs: snippet (the context window, lower-cased), position (target index in the window)
+│   ├── usage_1/
+│   └── ...
+├── tea/
+└── ...
+```
+
+The `usage_*` groups are numbered from 0 in the order the occurrences were found: article by article, and within an article form by form. HDF5 lists them in string order (`usage_10` before `usage_2`), so sort them numerically when reading embeddings and snippets together.
+
+`frequency_summary.csv` in the same folder has one row per word and decade:
+
+| Column | Description |
+|---|---|
+| `model` | `scaling_best` or `pretrained` |
+| `variant_mode` | `none` or `spelling` |
+| `context_window` | Words of context on each side |
+| `word` | Target word |
+| `decade` | Decade |
+| `forms` | Surface forms searched, separated by `\|` |
+| `count` | Occurrences found |
+
+`count` is the number of occurrences found; the number of embeddings saved is in each word group's `count` attribute. The two can differ only for an occurrence whose window cannot be embedded, which the script skips.
+
+## Analysis
+
+### Files
 
 | File | Description |
 |---|---|
@@ -78,40 +105,6 @@ embedding_extraction/
 | `extract_contexts_visible_only.py` | Extracts **all** cluster contexts ranked by distance to centroid, filtered to keep only snippets where the target word is visible within the display window. Re-centres snippets around the target word (±150 characters). Produces the data behind Tables 5–10 |
 | `jsd.py` | Computes JSD between consecutive decades and JSD vs. 1910 reference using Affinity Propagation on the combined usage matrix. Based on [Kutuzov & Giulianelli (2020)](https://github.com/akutuzov/semeval2020/blob/master/code/jsd.py). Produces Table 3. Includes checkpointing so interrupted runs can be resumed |
 
-## Pipeline
-
-### Step 1: Extract embeddings
-
-Requires the domain-adapted MacBERTh model (from `domain_adaptation/`) and the decade sub-corpora (from `data/en_decade_corpus/`).
-
-```bash
-# Extract embeddings using the domain-adapted model
-python embeddings_extraction.py --model finetuned
-
-# Extract embeddings using the pretrained model (for domain-adaptation evaluation)
-python embeddings_extraction.py --model pretrained
-```
-
-**What it does:**
-1. Loads MacBERTh (pretrained or domain-adapted) via the `gen_macberth.py` wrapper
-2. For each decade file, scans all lines for sentences containing target words
-3. Extracts the last-hidden-layer embedding (768-d) at the target word's token position, using a transform matrix to handle subword tokenisation
-4. Saves to HDF5: one file per decade (`commodity_embeddings_{decade}.h5`), with embeddings, snippets, and positions organised by word
-
-**Output format** (HDF5):
-```
-commodity_embeddings_1840.h5
-├── coffee/
-│   ├── usage_0/
-│   │   └── embedding    # (768,) float32, gzip-compressed
-│   │   └── attrs: snippet, position
-│   ├── usage_1/
-│   └── ...
-├── tea/
-└── ...
-```
-
-**Note:** Update `dir_in` at the top of the script to point to your local data directory. Extraction processes ~50 sentences per batch and clears GPU memory between batches to avoid OOM on large decades (e.g., tea in the 1890s has ~42,000 usages).
 
 ### Step 2: Clustering analysis
 
