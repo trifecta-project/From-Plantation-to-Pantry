@@ -1,14 +1,17 @@
 # From Plantation to Pantry
 
-Code and data for the paper:
-
-> Jiaqi Zhu and Marieke van Erp. "From Plantation to Pantry: Detecting Semantic Change in Commodity Terms through Static and Contextualised Embeddings in Nineteenth-Century British Newspapers." *Digital Scholarship in the Humanities* (submitted).
+Code and data for the paper *From Plantation to Pantry*, submitted to *Digital Scholarship in the Humanities*.
 
 ## Overview
 
-This repository contains the full pipeline for detecting semantic change in six commodity terms — *coffee*, *tea*, *sugar*, *opium*, *cocoa*, and *tobacco* — across eight decades of British newspaper discourse (1840–1919). The pipeline combines static Word2Vec embeddings with a domain-adapted [MacBERTh](https://huggingface.co/emanjavacas/MacBERTh) model to address two research questions: whether the dominant usage of each term shifted (RQ1, via cosine similarity), and how the relative prominence of distinct usage types reorganised over time (RQ2, via K-means clustering and Jensen–Shannon Divergence).
+The paper traces lexical semantic change in three commodity terms, *coffee*, *tea* and *sugar*, in British newspapers from 1801 to 1919. The corpus combines the British Library's [Heritage Made Digital](https://bl.iro.bl.uk/concern/datasets/2800eb7d-8b49-4398-a6e9-c2c5692a1304) (HMD) and [Living with Machines](https://bl.iro.bl.uk/concern/datasets/99dc570a-9460-48ac-baed-9d2b8c4c13c0) (LwM) collections: 7,927,079 articles and about 5.6 billion tokens, divided into one sub-corpus per year.
 
-The underlying corpus is drawn from the British Library's [Heritage Made Digital](https://bl.iro.bl.uk/concern/datasets/2800eb7d-8b49-4398-a6e9-c2c5692a1304) (HMD) and [Living with Machines](https://bl.iro.bl.uk/concern/datasets/99dc570a-9460-48ac-baed-9d2b8c4c13c0) (LwM) collections, comprising approximately 4.65 billion tokens across the analysis period.
+The pipeline:
+
+1. **Domain adaptation.** [MacBERTh](https://huggingface.co/emanjavacas/MacBERTh), a BERT model pretrained on historical English, is adapted to the newspaper corpus by continued masked-language-model training. A grid search on a 1% sample and a scaling experiment on the full corpus select the final model.
+2. **Occurrence embeddings.** Every occurrence of a target word is embedded in a context window of ±50 tokens, using the mean of the model's last four hidden layers.
+3. **Senses and change.** For each word, the occurrence embeddings of all 119 years are clustered together with k-means into one shared set of clusters, which are interpreted as senses. Each year's cluster distribution is compared with the next year's by Jensen–Shannon divergence (JSD), tested against sampling noise by permutation.
+4. **Validation.** Each target is compared with a control word of similar yearly frequency (*presence*, *child*, *difference*); the clusters and their shifts are checked against dependency relations (spaCy) and against nearest neighbours in independently trained static Word2Vec embeddings; and the analysis is repeated with the pretrained MacBERTh to compare it with the domain-adapted model.
 
 ## Repository Structure
 
@@ -16,150 +19,54 @@ The underlying corpus is drawn from the British Library's [Heritage Made Digital
 From-Plantation-to-Pantry/
 ├── README.md
 ├── requirements.txt
-│
-├── data/                              # Corpus data and access instructions
-│   ├── pretrained_word2vec_vectors
-│       ├── README.md
-│       ├── shared_vocab.py
-│       └── shared_vocab_output.txt
-│   ├── en_decade_corpus/           # Decade-level sub-corpora (generated)
-│       ├── README.md
-│       ├── corpus_overview.csv                     # Per-decade corpus composition statistics
-│       ├── newspaper_inventory.csv                 # All 120 newspaper titles in the corpus
-│       └── top30_newspapers_by_article_count.csv   # Top 30 newspapers by volume
-│
-├── corpus_preparation/                # Aggregate HMD + LwM into decade files
-│   ├── README.md
-│   ├── aggregate_and_partition.py
-│   ├── count_tokens_and_terms.py
-│   ├── decade_term_frequencies.csv
-│   ├── extract_corpus_metadata.py
-│   └── aggregation_report.txt
-│
-├── static_embeddings/                 # Static Word2Vec analysis (RQ1)
-│   ├── README.md
-│   ├── extract_neighbors.py            
-│   ├── visualize_semantic_trajectory.py                                  
-│   └── results/                                
-│
-├── domain_adaptation/                 # Domain-adapt MacBERTh on newspaper corpus
-│   ├── README.md
-│   ├── create_subcorpus.py            # 1% stratified subcorpus for grid search
-│   ├── grid_search.py                 # 24-configuration hyperparameter search
-│   ├── finetune_macberth.py           # Full-corpus training (best config)
-│   ├── newspaper_dataset.py           # PyTorch Dataset (memory-safe)
-│   ├── results.csv                    # Grid search results
-│   └── full_corpus_training_info.json
-│
-├── embedding_extraction/              # Extract and analyse contextualised embeddings (RQ2)
-│   ├── README.md
-│   ├── gen_macberth.py                # MacBERTh wrapper
-│   ├── embeddings_extraction.py       # Extract target-word embeddings
-│   └── analysis/
-│       ├── commodity_analysis_finetuned.py   # K-means clustering + visualisation
-│       ├── commodity_analysis_pretrained.py  # Same for pretrained (comparison)
-│       ├── extract_contexts_visible_only.py  # Centroid-closest snippets
-│       ├── jsd.py                            # JSD via Affinity Propagation
-│       └── output/                           # CSVs, plots, cluster contexts
-│
-└── domain_adaptation_evaluation/      # PCA comparison: pretrained vs adapted
-    ├── README.md
-    ├── pca_pretrained_vs_adapted.py
-    └── pca_plots/
+├── data/                        # Corpus documentation, statistics and metadata
+│   ├── en_year_corpus/          #   year sub-corpora (generated locally) and their statistics
+│   └── en_decade_corpus/        #   decade sub-corpora (generated locally), corpus metadata, newspaper inventory
+├── corpus_preparation/          # Build the year and decade sub-corpora; extract metadata; plot term counts
+├── domain_adaptation/           # Grid search and scaling experiment for domain-adapting MacBERTh
+├── embedding_extraction/        # Extract occurrence embeddings of the target and control words
+│   └── analysis/                # Clustering, JSD, dependency parsing and control-word comparison
+│       ├── results/             #   results with the domain-adapted model
+│       ├── results_pretrained/  #   results with the pretrained model
+│       └── controls/            #   targets compared with their control words
+└── static_embeddings/           # Nearest neighbours in pretrained Word2Vec embeddings
 ```
 
-Each directory has its own `README.md` with detailed documentation of the files, usage instructions, and mapping to the paper.
+Each folder has its own README describing its files, how to run them and what they produce.
 
-## Pipeline Overview
+## Pipeline
 
-The pipeline proceeds in six steps, each corresponding to a directory:
+| Step | Folder | What it does |
+|---|---|---|
+| 1 | `corpus_preparation/` | Aggregates the HMD and LwM plaintext files into one sub-corpus per year (and per decade), and extracts corpus metadata |
+| 2 | `domain_adaptation/` | Domain-adapts MacBERTh: grid search on a 1% subcorpus, then a scaling experiment on the full corpus; selects Config A, epoch 3 |
+| 3 | `embedding_extraction/` | Extracts an embedding for every occurrence of the target and control words, per year |
+| 4 | `embedding_extraction/analysis/` | Shared k-means clustering per word, cluster distributions per year, JSD between consecutive years with a permutation test, dependency profiles per cluster and per decade |
+| 5 | `embedding_extraction/analysis/controls/` | Compares the JSD of each target with that of its control word, against their frequencies |
+| 6 | `static_embeddings/` | Lists the nearest neighbours of each target per decade in the pretrained Word2Vec embeddings of Pedrazzini and McGillivray (2022) |
 
-| Step | Directory | Description | Paper section |
-|---|---|---|---|
-| 1 | `corpus_preparation/` | Aggregate HMD + LwM corpora, partition into decade sub-corpora | Section 3 |
-| 2 | `static_embeddings/` | Cosine similarity vs 1910s, nearest neighbours, t-SNE visualisations | Section 4.1 |
-| 3 | `domain_adaptation/` | Grid search on 1% subcorpus, train MacBERTh on full corpus with best config | Section 4.2 |
-| 4 | `embedding_extraction/` | Extract last-hidden-layer embeddings for target words per decade | Section 4.2 |
-| 5 | `embedding_extraction/analysis/` | K-means clustering, centroid-closest snippets, JSD computation | Sections 4.2, 5 |
-| 6 | `domain_adaptation_evaluation/` | PCA comparison of pretrained vs adapted embeddings | Appendix |
+## Data
 
-## Key Results
+The HMD and LwM collections are released by the British Library and are too large to include here; the sub-corpora are generated locally from them (see `data/README.md`). The repository includes the corpus statistics, the newspaper inventory and the results reported in the paper. The domain-adapted model and the occurrence embeddings are not included because of their size; they are regenerated with the scripts in `domain_adaptation/` and `embedding_extraction/`. The Word2Vec vectors are available from [Zenodo](https://doi.org/10.5281/zenodo.7181682) (see `static_embeddings/README.md`).
 
-The pipeline produces the following outputs mapped to the paper:
+## Requirements
 
-| Paper element | Output |
-|---|---|
-| Table 1 (token counts) | `data/en_decade_corpus/corpus_overview.csv` |
-| Table 2 (nearest neighbours) | `static_embeddings/results/w2v_neighbors` |
-| Table 3 (JSD values) | `embedding_extraction/analysis/output/csv/jsd_consecutive_decades.csv` |
-| Table 4 (clustering statistics) | `embedding_extraction/analysis/output/csv/cluster_summary_detailed.csv` |
-| Tables 5–10 (cluster contexts) | `embedding_extraction/analysis/output/cluster_contexts/` |
-| Figure 4 (cosine similarity) | `static_embeddings/results/trajectory_results/all_trajectories.png` |
-| Figures 5–7 (t-SNE trajectories) | `static_embeddings/results/trajectory_results` |
-| Figure 8 (coffee clusters) | `embedding_extraction/analysis/output/clusters/coffee/` |
-| Figure 9 (sugar/cocoa PCA) | `embedding_extraction/analysis/output/PCA/` |
-| Figures 10–11 (domain adaptation) | `domain_adaptation_evaluation/pca_plots/` |
+Python 3 with the packages in `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+```
+
+A GPU is needed for domain adaptation and embedding extraction. Corpus preparation, the analysis and the static embeddings run on CPU, although clustering with the silhouette score on all embeddings takes a long time for *tea* (see `embedding_extraction/analysis/README.md`).
 
 ## Acknowledgements
 
 This code builds on and adapts work from:
 
-- **[LatinISE](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change)** (Barbara McGillivray and Valentina Lunardi) — embedding extraction wrapper, clustering analysis pipeline, and domain-adaptation architecture
-- **[UiO-UvA SemEval-2020](https://github.com/akutuzov/semeval2020)** (Andrey Kutuzov and Mario Giulianelli) — Affinity Propagation-based JSD computation
-- **[diachronicBert](https://github.com/wendyqiu/diachronicBert)** (Wendy Qiu) — PCA visualisation for domain-adaptation evaluation
-- **[Pedrazzini & McGillivray (2022)](https://github.com/Living-with-machines/DiachronicEmb-BigHistData)** — pretrained and aligned Word2Vec vectors on HMD + LwM
-
-## Data Access
-
-The HMD and LwM corpora are released by the British Library and are too large to include in this repository. See `data/README.md` for download links and instructions for generating the decade sub-corpora.
-
-The pretrained Word2Vec vectors are from Pedrazzini & McGillivray (2022). See `static_embeddings/README.md` for access details.
-
-## Requirements
-
-Python 3.9+ with the following key packages:
-
-```
-torch
-transformers
-scikit-learn
-scipy
-gensim
-h5py
-numpy
-pandas
-matplotlib
-tqdm
-```
-
-Install with:
-
-```bash
-pip install -r requirements.txt
-```
-
-**Note:** GPU access is required for embedding extraction (`embedding_extraction/`) and domain adaptation (`domain_adaptation/`). The static embedding analysis and clustering can run on CPU.
-
-## Citation
-
-If you use this code or data, please cite:
-
-```bibtex
-@article{zhu2026plantation,
-  title={From Plantation to Pantry: Detecting Semantic Change in Commodity Terms 
-         through Static and Contextualised Embeddings in Nineteenth-Century 
-         British Newspapers},
-  author={Zhu, Jiaqi and van Erp, Marieke},
-  journal={Digital Scholarship in the Humanities},
-  year={2026},
-  note={Submitted}
-}
-```
+- **[LatinISE](https://github.com/BarbaraMcG/latinise/tree/master/christianity_semantic_change)** by Barbara McGillivray and Valentina Lunardi: the embedding extraction wrapper and the domain-adaptation scripts.
+- **[Pedrazzini and McGillivray (2022)](https://doi.org/10.5281/zenodo.7181682)**: the pretrained and aligned Word2Vec vectors trained on HMD and LwM ([DiachronicEmb-BigHistData](https://github.com/Living-with-machines/DiachronicEmb-BigHistData)).
 
 ## Funding
 
-This research was supported by the European Union through the European Research Council under grant agreement 101088548 — [TRIFECTA](https://trifecta.dhlab.nl/).
-
-## License
-
-[TBD — add license before publication]
+This research was supported by the European Union through the European Research Council under grant agreement 101088548 ([TRIFECTA](https://trifecta.dhlab.nl/)).
