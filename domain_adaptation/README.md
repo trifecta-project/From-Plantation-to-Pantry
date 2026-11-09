@@ -79,11 +79,11 @@ print(d.head())"
 
 ### Configurations
 
-| Config | Learning rate | Epochs | Rationale |
+| Config | Learning rate | Epochs | 
 |---|---|---|---|
-| A | 2e-5 | 5 | Conservative: low learning rate, more passes |
-| B | 3e-5 | 3 | Moderate |
-| C | 5e-5 | 2 | The grid-search learning rate, with few passes |
+| A | 2e-5 | 5 |
+| B | 3e-5 | 3 | 
+| C | 5e-5 | 2 | 
 
 The three configurations have about the same product of learning rate and number of epochs, so they trade the size of each update against the number of passes over the data. All use batch size 16, MLM with masking probability 0.15, AdamW with weight decay 0.01, a linear learning-rate schedule with 10% warmup planned for the configuration's own number of epochs, gradient clipping at norm 1.0, a maximum sequence length of 256 tokens and fp16 mixed precision, with MacBERTh's default dropout. Each starts from the original pretrained MacBERTh.
 
