@@ -1,167 +1,124 @@
-# finetune_macberth_scaling.py
-#
-# Trains MacBERTh on the FULL corpus with configurations informed by the
-# parameter sensitivity of the 1% grid search.
-#
-# Rationale: the grid search on 1% of the data (~79K sentences) found lr=5e-5,
-# bs=16, ep=4 as optimal. But the full corpus has ~7.1M training sentences
-# (~90x more), so each epoch produces ~90x more gradient updates. To avoid
-# overfitting, we test 3 configurations along the lr/epoch trade-off:
-#
-#   Config A: lr=2e-5, 3 epochs  (conservative)
-#   Config B: lr=3e-5, 2 epochs  (moderate)
-#   Config C: lr=5e-5, 1 epoch   (the grid-search learning rate, single pass)
-#
-# All use bs=16 (the grid-search winner) and 10% warmup, start from the original
-# pretrained MacBERTh, and share one stratified 90/10 train/val split.
-# Each saves a checkpoint after every epoch: 3+2+1 = 6 checkpoints.
-#
-#   Config A_continue: loads the Config A epoch-3 checkpoint and trains epochs
-#   4-5 with a new optimizer and a new linear schedule planned for 5 epochs
-#   (warmup back to lr=2e-5, then linear decay). 2 further checkpoints.
-#
-# Usage:
-#   CUDA_VISIBLE_DEVICES=0 python finetune_macberth_scaling.py --config A
-#   CUDA_VISIBLE_DEVICES=1 python finetune_macberth_scaling.py --config B
-#   CUDA_VISIBLE_DEVICES=1 python finetune_macberth_scaling.py --config C
-#   CUDA_VISIBLE_DEVICES=0 python finetune_macberth_scaling.py --config A_continue   # after A
-#
-#   # Or run A, B and C sequentially:
-#   CUDA_VISIBLE_DEVICES=0 python finetune_macberth_scaling.py --config all
-#
-#   # Rank all checkpoints and write candidate_models.csv:
-#   python finetune_macberth_scaling.py --config compare
-#
-# Runtime per epoch (A40, bs=16, fp16): ~23-29 hours
+#!/usr/bin/env python3
+"""
+finetune_macberth_scaling.py - domain adaptation of MacBERTh on the full
+newspaper corpus (continued masked-language-model training), for three
+configurations along the learning-rate/epoch trade-off.
 
-import os
+The 1% grid search (grid_search.py) found lr=5e-5, batch size 16 and 4 epochs
+best on about 79,000 articles. The full corpus has about 7.1 million training
+articles, so each epoch performs about 90 times as many parameter updates, and
+the subcorpus optimum need not carry over. Three configurations with about the
+same product of learning rate and number of epochs are therefore trained:
+
+  Config A: lr=2e-5, 5 epochs 
+  Config B: lr=3e-5, 3 epochs 
+  Config C: lr=5e-5, 2 epochs 
+
+All use batch size 16, start from the original
+MacBERTh, and share one train/validation split: 10% of the articles of each
+decade file, drawn at random (seed 42), are held out for validation; every
+other article is a training sequence, read once per epoch. Each run's linear
+learning-rate schedule (10% warmup) is planned for its own number of epochs,
+and a checkpoint is saved after every epoch (5 + 3 + 2 = 10 checkpoints).
+
+Each article (one line of a decade file) is tokenised with MacBERTh's
+tokeniser and truncated to its first 256 subword tokens.
+
+Usage
+-----
+python finetune_macberth_scaling.py --config A --data-dir /path/to/data
+python finetune_macberth_scaling.py --config B --data-dir /path/to/data
+python finetune_macberth_scaling.py --config C --data-dir /path/to/data
+python finetune_macberth_scaling.py --config all --data-dir /path/to/data   # A, B, C in sequence
+python finetune_macberth_scaling.py --config compare --data-dir /path/to/data
+
+--data-dir holds en_decade_corpus/ (1800.txt ... 1910.txt); checkpoints go to
+<data-dir>/output/scaling_experiment/config_<X>/epoch_<n>/ unless --out-dir is
+given. --config compare ranks all checkpoints by validation loss and writes
+candidate_models.csv. Runtime per epoch on one NVIDIA A40 (fp16): about 11 hours.
+"""
+
+import argparse
+import csv
 import gc
 import json
+import os
+import random
+import re
 import time
-import argparse
 
 import numpy as np
 import torch
-from torch.cuda.amp import autocast, GradScaler
-from torch.utils.data import DataLoader
-from transformers import (
-    BertForMaskedLM,
-    AutoTokenizer,
-    DataCollatorForLanguageModeling,
-    get_scheduler,
-)
+from torch.cuda.amp import GradScaler, autocast
 from torch.optim import AdamW
+from torch.utils.data import DataLoader
 from tqdm import tqdm
+from transformers import (AutoTokenizer, BertForMaskedLM,
+                          DataCollatorForLanguageModeling, get_scheduler)
 
-from newspaper_dataset import NewspaperDataset
+BERT_PATH = "emanjavacas/MacBERTh"
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
-DIR_IN      = "..."  # change it to your path
-DIR_CORPUS  = os.path.join(DIR_IN, "en_decade_corpus")
-DIR_OUT     = os.path.join(DIR_IN, "output", "scaling_experiment")
-BERT_PATH   = "emanjavacas/MacBERTh"
-
-# ─── Configurations ──────────────────────────────────────────────────────────
 CONFIGS = {
-    "A": {
-        "lr": 2e-5,
-        "epochs": 3,
-        "bs": 16,
-        "desc": "conservative (lr=2e-5, 3ep)"
-    },
-
-    "A_continue": {
-        "lr": 2e-5,
-        "epochs": 5,
-        "bs": 16,
-        "desc": "continue A from epoch 3 to epoch 5"
-    },
-
-    "B": {
-        "lr": 3e-5,
-        "epochs": 2,
-        "bs": 16,
-        "desc": "moderate (lr=3e-5, 2ep)"
-    },
-
-    "C": {
-        "lr": 5e-5,
-        "epochs": 1,
-        "bs": 16,
-        "desc": "aggressive-brief (lr=5e-5, 1ep)"
-    },
+    "A": {"lr": 2e-5, "epochs": 5, "bs": 16, "desc": "conservative (lr=2e-5, 5 epochs)"},
+    "B": {"lr": 3e-5, "epochs": 3, "bs": 16, "desc": "moderate (lr=3e-5, 3 epochs)"},
+    "C": {"lr": 5e-5, "epochs": 2, "bs": 16, "desc": "aggressive-brief (lr=5e-5, 2 epochs)"},
 }
 
 WARMUP_FRACTION = 0.10
-MAX_LENGTH      = 256
-RANDOM_SEED     = 42
+MAX_LENGTH = 256
+RANDOM_SEED = 42
 
-# ─── Shared setup ─────────────────────────────────────────────────────────────
 
-def get_corpus_files():
-    """Get sorted list of decade corpus files (excluding subcorpus)."""
-    files = sorted([
-        os.path.join(DIR_CORPUS, f)
-        for f in os.listdir(DIR_CORPUS)
-        if f.endswith('.txt') and 'subcorpus' not in f
-    ])
-    print(f"Found {len(files)} decade files:")
-    for f in files:
-        print(f"  {os.path.basename(f)}")
+# ─── Data ─────────────────────────────────────────────────────────────────────
+
+def get_corpus_files(corpus_dir):
+    """Sorted decade files (1800.txt ... 1910.txt). Only files named by a
+    four-digit decade are read, so other text files in the folder (such as
+    the grid-search subcorpus) never enter the training data."""
+    files = sorted(os.path.join(corpus_dir, f) for f in os.listdir(corpus_dir)
+                   if re.fullmatch(r"\d{4}\.txt", f))
+    if not files:
+        raise SystemExit(f"No decade files (e.g. 1850.txt) in {corpus_dir}")
+    print(f"Found {len(files)} decade files: "
+          f"{', '.join(os.path.basename(f) for f in files)}")
     return files
 
 
-def make_train_val_split(files, val_fraction=0.1, seed=42):
-    """
-    Stratified train/val split: for each decade file, hold out
-    val_fraction of lines for validation. Returns two lists of
-    (file_path, byte_offset) tuples.
-    """
-    import random
+def make_train_val_split(files, val_fraction=0.1, seed=RANDOM_SEED):
+    """Stratified split: within each decade file, every non-empty line is held
+    out for validation with probability val_fraction. Returns the training and
+    validation index as lists of (file path, byte offset), and the counts per
+    decade."""
     rng = random.Random(seed)
-
-    train_index = []
-    val_index   = []
-    split_info  = {}
-
+    train_index, val_index, split_info = [], [], {}
     for file_path in files:
-        decade_name = os.path.basename(file_path).replace('.txt', '')
-        file_train  = []
-        file_val    = []
-
-        with open(file_path, 'rb') as f:
+        decade = os.path.basename(file_path).replace(".txt", "")
+        n_train = n_val = 0
+        with open(file_path, "rb") as f:
             offset = 0
             for line in f:
-                stripped = line.strip()
-                if stripped:
+                if line.strip():
                     if rng.random() < val_fraction:
-                        file_val.append((file_path, offset))
+                        val_index.append((file_path, offset))
+                        n_val += 1
                     else:
-                        file_train.append((file_path, offset))
+                        train_index.append((file_path, offset))
+                        n_train += 1
                 offset += len(line)
-
-        train_index.extend(file_train)
-        val_index.extend(file_val)
-        split_info[decade_name] = {
-            "train": len(file_train),
-            "val": len(file_val)
-        }
-        print(f"  {decade_name}: {len(file_train):,} train / {len(file_val):,} val")
-
-    # Shuffle train index
-    rng2 = random.Random(seed + 1)
-    rng2.shuffle(train_index)
-
+        split_info[decade] = {"train": n_train, "val": n_val}
+        print(f"  {decade}: {n_train:,} train / {n_val:,} val")
+    random.Random(seed + 1).shuffle(train_index)
     print(f"\nTotal: {len(train_index):,} train / {len(val_index):,} val")
     return train_index, val_index, split_info
 
 
 class IndexedDataset(torch.utils.data.Dataset):
-    """Dataset that reads from pre-built (file_path, byte_offset) index."""
+    """Reads each article from its (file path, byte offset) and tokenises it:
+    the first MAX_LENGTH subword tokens, padded."""
 
-    def __init__(self, index, tokenizer, max_length=256):
-        self.index      = index
-        self.tokenizer  = tokenizer
+    def __init__(self, index, tokenizer, max_length=MAX_LENGTH):
+        self.index = index
+        self.tokenizer = tokenizer
         self.max_length = max_length
 
     def __len__(self):
@@ -169,158 +126,86 @@ class IndexedDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         file_path, offset = self.index[idx]
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             f.seek(offset)
-            line = f.readline().decode('utf-8', errors='replace').strip()
-
-        tokens    = self.tokenizer.tokenize(line)
-        token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
-
-        if len(token_ids) > self.max_length:
-            token_ids = token_ids[:self.max_length]
-
-        padding_length = self.max_length - len(token_ids)
-        input_ids      = token_ids + [0] * padding_length
-        attention_mask  = [1] * len(token_ids) + [0] * padding_length
-
+            line = f.readline().decode("utf-8", errors="replace").strip()
+        token_ids = self.tokenizer.convert_tokens_to_ids(self.tokenizer.tokenize(line))
+        token_ids = token_ids[:self.max_length]
+        padding = self.max_length - len(token_ids)
         return {
-            "input_ids":      torch.tensor(input_ids,      dtype=torch.long),
-            "attention_mask": torch.tensor(attention_mask,  dtype=torch.long),
+            "input_ids": torch.tensor(token_ids + [0] * padding, dtype=torch.long),
+            "attention_mask": torch.tensor([1] * len(token_ids) + [0] * padding,
+                                           dtype=torch.long),
         }
 
 
-def evaluate(model, val_loader, device):
-    """Compute validation loss and perplexity."""
-    model.eval()
-    total_loss = 0.0
-    total_batches = 0
+# ─── Training ────────────────────────────────────────────────────────────────
 
+def evaluate(model, val_loader, device):
+    """Mean validation loss over batches, and perplexity."""
+    model.eval()
+    total, n = 0.0, 0
     with torch.no_grad():
         for batch in tqdm(val_loader, desc="Validating", leave=False):
             batch = {k: v.to(device) for k, v in batch.items()}
             with autocast():
-                outputs = model(**batch)
-            total_loss += outputs.loss.item()
-            total_batches += 1
-
-    avg_loss = total_loss / max(total_batches, 1)
-    perplexity = np.exp(avg_loss)
-    return avg_loss, perplexity
+                loss = model(**batch).loss
+            total += loss.mean().item()
+            n += 1
+    loss = total / max(n, 1)
+    return loss, float(np.exp(loss))
 
 
-def train_config(config_name, config, train_index, val_index, tokenizer):
-    """Train one configuration with per-epoch checkpoints."""
-
-    lr     = config["lr"]
-    epochs = config["epochs"]
-    bs     = config["bs"]
-    desc   = config["desc"]
-
-    config_dir = os.path.join(DIR_OUT, f"config_{config_name}")
+def train_config(name, config, train_index, val_index, tokenizer, out_dir):
+    lr, epochs, bs = config["lr"], config["epochs"], config["bs"]
+    config_dir = os.path.join(out_dir, f"config_{name}")
     os.makedirs(config_dir, exist_ok=True)
+    print(f"\n{'=' * 70}\nCONFIG {name}: {config['desc']}\n"
+          f"  lr={lr}, bs={bs}, epochs={epochs}, warmup={WARMUP_FRACTION:.0%}\n"
+          f"  Output: {config_dir}\n{'=' * 70}\n")
 
-    print(f"\n{'='*70}")
-    print(f"CONFIG {config_name}: {desc}")
-    print(f"  lr={lr}, bs={bs}, epochs={epochs}, warmup={WARMUP_FRACTION*100:.0f}%")
-    print(f"  Output: {config_dir}")
-    print(f"{'='*70}\n")
-
-    # ── Device ────────────────────────────────────────────────────────────
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
-
-    # ── Load fresh model for each config ──────────────────────────────────
-    if config_name == "A_continue":
-
-        resume_path = os.path.join(
-            DIR_OUT,
-            "config_A",
-            "epoch_3"
-        )
-
-        print(f"Resuming from checkpoint:")
-        print(resume_path)
-
-        model = BertForMaskedLM.from_pretrained(resume_path)
-
-    else:
-
-        print(f"Loading MacBERTh from {BERT_PATH}...")
-        model = BertForMaskedLM.from_pretrained(BERT_PATH)
-
-    # Multi-GPU if available
+    print(f"Loading MacBERTh from {BERT_PATH} ...")
+    model = BertForMaskedLM.from_pretrained(BERT_PATH)
     n_gpus = torch.cuda.device_count()
     if n_gpus > 1:
         print(f"Using {n_gpus} GPUs via DataParallel")
         model = torch.nn.DataParallel(model)
     model.to(device)
 
-    # ── Datasets ──────────────────────────────────────────────────────────
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer, mlm=True, mlm_probability=0.15
-    )
+    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True,
+                                               mlm_probability=0.15)
+    train_loader = DataLoader(IndexedDataset(train_index, tokenizer), batch_size=bs,
+                              shuffle=True, collate_fn=collator, num_workers=4,
+                              pin_memory=True, drop_last=True)
+    val_loader = DataLoader(IndexedDataset(val_index, tokenizer), batch_size=bs * 2,
+                            collate_fn=collator, num_workers=4, pin_memory=True)
 
-    train_dataset = IndexedDataset(train_index, tokenizer, MAX_LENGTH)
-    val_dataset   = IndexedDataset(val_index,   tokenizer, MAX_LENGTH)
-
-    train_loader = DataLoader(
-        train_dataset, batch_size=bs, shuffle=True,
-        collate_fn=data_collator, num_workers=4, pin_memory=True,
-        drop_last=True
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=bs * 2,
-        collate_fn=data_collator, num_workers=4, pin_memory=True
-    )
-
-    # ── Optimizer & scheduler ─────────────────────────────────────────────
-    total_steps  = len(train_loader) * epochs
+    total_steps = len(train_loader) * epochs
     warmup_steps = int(total_steps * WARMUP_FRACTION)
-
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
-    scheduler = get_scheduler(
-        "linear", optimizer=optimizer,
-        num_warmup_steps=warmup_steps,
-        num_training_steps=total_steps
-    )
+    scheduler = get_scheduler("linear", optimizer=optimizer,
+                              num_warmup_steps=warmup_steps,
+                              num_training_steps=total_steps)
     scaler = GradScaler()
+    print(f"Training plan: {len(train_loader):,} batches per epoch, {total_steps:,} "
+          f"steps, {warmup_steps:,} warmup steps, {len(val_loader):,} validation batches")
 
-    print(f"\nTraining plan:")
-    print(f"  Train batches/epoch: {len(train_loader):,}")
-    print(f"  Total steps:         {total_steps:,}")
-    print(f"  Warmup steps:        {warmup_steps:,}")
-    print(f"  Val batches:         {len(val_loader):,}")
-
-    # ── Training loop ─────────────────────────────────────────────────────
-    epoch_logs    = []
-    best_val_loss = float("inf")
-    best_epoch    = -1
-    training_start = time.time()
-
-    if config_name == "A_continue":
-        start_epoch = 4
-    else:
-        start_epoch = 1
-
-
-    for epoch in range(start_epoch, epochs + 1):
-        epoch_start = time.time()
+    epoch_logs, best_loss, best_epoch = [], float("inf"), -1
+    t_start = time.time()
+    for epoch in range(1, epochs + 1):
+        t_epoch = time.time()
         model.train()
-        running_loss = 0.0
-        n_batches    = 0
-
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}", leave=True)
+        running, n_batches = 0.0, 0
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}")
         for step, batch in enumerate(pbar):
             batch = {k: v.to(device) for k, v in batch.items()}
-
             with autocast():
-                outputs = model(**batch)
-                loss = outputs.loss
+                loss = model(**batch).loss
                 if n_gpus > 1:
                     loss = loss.mean()
-
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -328,205 +213,129 @@ def train_config(config_name, config, train_index, val_index, tokenizer):
             scaler.update()
             scheduler.step()
             optimizer.zero_grad()
-
-            running_loss += loss.item()
+            running += loss.item()
             n_batches += 1
-
             if step % 500 == 0:
-                pbar.set_postfix({
-                    "loss": f"{running_loss / max(n_batches, 1):.4f}",
-                    "lr": f"{scheduler.get_last_lr()[0]:.2e}"
-                })
-
-        train_loss = running_loss / max(n_batches, 1)
-
-        # ── Validate ──────────────────────────────────────────────────────
+                pbar.set_postfix(loss=f"{running / n_batches:.4f}",
+                                 lr=f"{scheduler.get_last_lr()[0]:.2e}")
+        train_loss = running / max(n_batches, 1)
         val_loss, val_ppl = evaluate(model, val_loader, device)
+        hours = (time.time() - t_epoch) / 3600
+        print(f"\n  Epoch {epoch}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, "
+              f"val_ppl={val_ppl:.2f}, time={hours:.1f}h")
 
-        epoch_time = (time.time() - epoch_start) / 3600
-        print(f"\n  Epoch {epoch}: train_loss={train_loss:.4f}, "
-              f"val_loss={val_loss:.4f}, val_ppl={val_ppl:.2f}, "
-              f"time={epoch_time:.1f}h")
-
-        # ── Save checkpoint ───────────────────────────────────────────────
         ckpt_dir = os.path.join(config_dir, f"epoch_{epoch}")
         os.makedirs(ckpt_dir, exist_ok=True)
-
-        model_to_save = model.module if hasattr(model, 'module') else model
-        model_to_save.save_pretrained(ckpt_dir)
+        (model.module if hasattr(model, "module") else model).save_pretrained(ckpt_dir)
         tokenizer.save_pretrained(ckpt_dir)
-
-        # Save checkpoint metadata
-        ckpt_meta = {
-            "config_name":  config_name,
-            "config":       config,
-            "epoch":        epoch,
-            "train_loss":   round(train_loss, 6),
-            "val_loss":     round(val_loss, 6),
-            "val_perplexity": round(val_ppl, 4),
-            "epoch_hours":  round(epoch_time, 2),
-            "lr_at_end":    scheduler.get_last_lr()[0],
-        }
+        meta = {"config_name": name, "config": config, "epoch": epoch,
+                "train_loss": round(train_loss, 6), "val_loss": round(val_loss, 6),
+                "val_perplexity": round(val_ppl, 4), "epoch_hours": round(hours, 2),
+                "lr_at_end": scheduler.get_last_lr()[0]}
         with open(os.path.join(ckpt_dir, "checkpoint_info.json"), "w") as f:
-            json.dump(ckpt_meta, f, indent=2)
-
+            json.dump(meta, f, indent=2)
         print(f"  Checkpoint saved: {ckpt_dir}")
+        epoch_logs.append(meta)
+        if val_loss < best_loss:
+            best_loss, best_epoch = val_loss, epoch
 
-        epoch_logs.append(ckpt_meta)
-
-        # Track best
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_epoch    = epoch
-
-    # ── Config summary ────────────────────────────────────────────────────
-    total_hours = (time.time() - training_start) / 3600
-
-    summary = {
-        "config_name":       config_name,
-        "config":            config,
-        "best_epoch":        best_epoch,
-        "best_val_loss":     round(best_val_loss, 6),
-        "best_val_perplexity": round(np.exp(best_val_loss), 4),
-        "total_hours":       round(total_hours, 2),
-        "epoch_logs":        epoch_logs,
-    }
-
+    summary = {"config_name": name, "config": config, "best_epoch": best_epoch,
+               "best_val_loss": round(best_loss, 6),
+               "best_val_perplexity": round(float(np.exp(best_loss)), 4),
+               "total_hours": round((time.time() - t_start) / 3600, 2),
+               "epoch_logs": epoch_logs}
     with open(os.path.join(config_dir, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
+    print(f"\nCONFIG {name} COMPLETE: best epoch {best_epoch}, val_loss {best_loss:.4f}, "
+          f"perplexity {np.exp(best_loss):.2f}, {summary['total_hours']:.1f} h")
 
-    print(f"\n{'='*70}")
-    print(f"CONFIG {config_name} COMPLETE")
-    print(f"  Best epoch:     {best_epoch}")
-    print(f"  Best val_loss:  {best_val_loss:.4f}")
-    print(f"  Best perplexity: {np.exp(best_val_loss):.2f}")
-    print(f"  Total time:     {total_hours:.1f} hours")
-    print(f"  Best model:     {config_dir}/epoch_{best_epoch}/")
-    print(f"{'='*70}\n")
-
-    # Cleanup GPU memory before next config
     del model, optimizer, scheduler, scaler
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-
     return summary
 
 
-def compare_all_checkpoints():
-    """
-    After all configs are trained, print a comparison table of all
-    checkpoints + pretrained MacBERTh for easy model selection.
-    """
-    print(f"\n{'='*70}")
-    print("ALL CANDIDATE MODELS")
-    print(f"{'='*70}")
-    print(f"{'Model':<35} {'Val Loss':<12} {'PPL':<10} {'Hours':<8}")
-    print("-" * 65)
-
-    # Pretrained baseline
-    print(f"{'MacBERTh (pretrained)':<35} {'—':<12} {'—':<10} {'0':<8}")
-
-    # Collect all checkpoints
-    candidates = []
-    for config_name in ["A", "A_continue", "B", "C"]:
-        config_dir = os.path.join(DIR_OUT, f"config_{config_name}")
-        summary_path = os.path.join(config_dir, "summary.json")
-        if os.path.exists(summary_path):
-            with open(summary_path) as f:
-                summary = json.load(f)
-            for log in summary["epoch_logs"]:
-                label = f"Config {config_name} epoch {log['epoch']}"
-                candidates.append({
-                    "label":    label,
-                    "val_loss": log["val_loss"],
-                    "val_ppl":  log["val_perplexity"],
-                    "hours":    log["epoch_hours"],
-                    "path":     os.path.join(config_dir, f"epoch_{log['epoch']}"),
-                })
-
-    # Sort by val_loss
-    candidates.sort(key=lambda x: x["val_loss"])
-    for c in candidates:
-        print(f"{c['label']:<35} {c['val_loss']:<12.4f} {c['val_ppl']:<10.2f} {c['hours']:<8.1f}")
-
-    print(f"\n{'='*70}")
-    print("The checkpoint with the lowest validation loss is the selected model.")
-    print(f"{'='*70}")
-
-    # Save comparison CSV
-    import csv
-    csv_path = os.path.join(DIR_OUT, "candidate_models.csv")
-    with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["label", "val_loss", "val_ppl", "hours", "path"])
-        writer.writeheader()
-        writer.writerows(candidates)
-    print(f"\nComparison saved to: {csv_path}")
+def compare_all_checkpoints(out_dir):
+    """Rank all checkpoints of all configurations by validation loss and write
+    candidate_models.csv."""
+    rows = []
+    for name in CONFIGS:
+        path = os.path.join(out_dir, f"config_{name}", "summary.json")
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            summary = json.load(f)
+        for log in summary["epoch_logs"]:
+            rows.append({"config": name, "learning_rate": summary["config"]["lr"],
+                         "epoch": log["epoch"], "of_epochs": summary["config"]["epochs"],
+                         "train_loss": log["train_loss"], "val_loss": log["val_loss"],
+                         "val_ppl": log["val_perplexity"], "hours": log["epoch_hours"],
+                         "path": os.path.join(out_dir, f"config_{name}",
+                                              f"epoch_{log['epoch']}")})
+    if not rows:
+        raise SystemExit(f"No finished configuration in {out_dir}")
+    rows.sort(key=lambda r: r["val_loss"])
+    print(f"\n{'Checkpoint':<24} {'LR':<8} {'Train loss':<11} {'Val loss':<10} {'PPL':<8}")
+    print("-" * 63)
+    for r in rows:
+        print(f"{'Config ' + r['config'] + ', epoch ' + str(r['epoch']):<24} "
+              f"{r['learning_rate']:<8.0e} {r['train_loss']:<11.4f} "
+              f"{r['val_loss']:<10.4f} {r['val_ppl']:<8.2f}")
+    path = os.path.join(out_dir, "candidate_models.csv")
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    print(f"\nLowest validation loss: Config {rows[0]['config']}, epoch {rows[0]['epoch']}")
+    print(f"Wrote {path}")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Train MacBERTh on full corpus with scaling-informed configs"
-    )
-    parser.add_argument(
-        "--config", type=str, required=True,
-        choices=["A", "A_continue", "B", "C", "all", "compare"],
-        help="Which config to run: A, A_continue (after A), B, C, all (A, B and C in sequence), or compare (rank all checkpoints)"
-    )
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--config", required=True, choices=["A", "B", "C", "all", "compare"],
+                    help="configuration to train, all three in sequence, or compare "
+                         "(rank all checkpoints)")
+    ap.add_argument("--data-dir", required=True,
+                    help="folder holding en_decade_corpus/")
+    ap.add_argument("--out-dir", default=None,
+                    help="output folder (default <data-dir>/output/scaling_experiment)")
+    args = ap.parse_args()
+    corpus_dir = os.path.join(args.data_dir, "en_decade_corpus")
+    out_dir = args.out_dir or os.path.join(args.data_dir, "output", "scaling_experiment")
 
-    # Compare mode: just print results from previous runs
     if args.config == "compare":
-        compare_all_checkpoints()
+        compare_all_checkpoints(out_dir)
         return
 
-    # Set seeds
+    to_run = list(CONFIGS) if args.config == "all" else [args.config]
+    for name in to_run:
+        done = os.path.join(out_dir, f"config_{name}", "summary.json")
+        if os.path.exists(done):
+            raise SystemExit(f"Config {name} is already finished ({done}); "
+                             f"move that folder away to train it again.")
+
     torch.manual_seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
     torch.backends.cudnn.benchmark = True
 
-    # Load tokenizer (shared across all configs)
-    print(f"Loading tokenizer from {BERT_PATH}...")
+    print(f"Loading tokenizer from {BERT_PATH} ...")
     tokenizer = AutoTokenizer.from_pretrained(BERT_PATH)
+    print("Building the corpus index ...")
+    train_index, val_index, split_info = make_train_val_split(get_corpus_files(corpus_dir))
 
-    # Build corpus index (done once, reused across configs)
-    print(f"\nBuilding corpus index...")
-    corpus_files = get_corpus_files()
-    train_index, val_index, split_info = make_train_val_split(
-        corpus_files, val_fraction=0.1, seed=RANDOM_SEED
-    )
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "split_info.json"), "w") as f:
+        json.dump({"total_train": len(train_index), "total_val": len(val_index),
+                   "per_decade": split_info, "val_fraction": 0.1, "seed": RANDOM_SEED},
+                  f, indent=2)
 
-    # Save split info
-    os.makedirs(DIR_OUT, exist_ok=True)
-    with open(os.path.join(DIR_OUT, "split_info.json"), "w") as f:
-        json.dump({
-            "total_train": len(train_index),
-            "total_val":   len(val_index),
-            "per_decade":  split_info,
-            "val_fraction": 0.1,
-            "seed":        RANDOM_SEED,
-        }, f, indent=2)
-
-    # Run config(s)
-    if args.config == "all":
-        configs_to_run = ["A", "B", "C"]
-    else:
-        configs_to_run = [args.config]
-
-    summaries = {}
-    for config_name in configs_to_run:
-        config = CONFIGS[config_name]
-        summary = train_config(
-            config_name, config, train_index, val_index, tokenizer
-        )
-        summaries[config_name] = summary
-
-    # Print comparison
-    compare_all_checkpoints()
+    for name in to_run:
+        train_config(name, CONFIGS[name], train_index, val_index, tokenizer, out_dir)
+    compare_all_checkpoints(out_dir)
 
 
 if __name__ == "__main__":
     main()
-
