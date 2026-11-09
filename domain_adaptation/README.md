@@ -7,36 +7,37 @@ The code is adapted from the fine-tuning scripts of the [LatinISE project](https
 Domain adaptation proceeds in two stages:
 
 1. **Grid search on a 1% subcorpus.** Searching hyperparameters on the full corpus is too expensive, so a grid of 24 configurations is compared on a 1% sample.
-2. **Scaling experiment on the full corpus.** The full corpus is about 90 times larger than the subcorpus, so each epoch performs about 90 times more parameter updates, and the best configuration on the subcorpus need not be the best on the full corpus. Three configurations along the learning-rate/epoch trade-off are therefore trained on the full corpus, plus a continuation of the most conservative one, and the checkpoint with the lowest validation loss is selected.
+2. **Scaling experiment on the full corpus.** The full corpus is about 90 times larger than the subcorpus, so each epoch performs about 90 times more parameter updates, and the best configuration on the subcorpus need not be the best on the full corpus. Three configurations along the learning-rate/epoch trade-off are therefore trained on the full corpus, and the checkpoint with the lowest validation loss is selected.
 
-The selected model is **Config A, epoch 3** (learning rate 2e-5, batch size 16; validation loss 2.093, perplexity 8.11). It is the model used for all embedding extraction (see `embedding_extraction/`).
+The selected model is **Config A after five epochs** (learning rate 2e-5, batch size 16). It is the model used for all embedding extraction (see `embedding_extraction/`).
 
 ## Files
 
 | File | Description |
 |---|---|
+| `create_subcorpus.py` | Samples 1% of the articles of each decade file into one shuffled subcorpus for the grid search |
 | `newspaper_dataset.py` | PyTorch `Dataset` for newspaper text, used by the grid search |
-| `create_subcorpus.py` | Samples 1% of the lines of each decade file into one shuffled subcorpus for the grid search |
 | `grid_search.py` | Trains and evaluates one grid-search configuration on the subcorpus |
-| `grid_search_results.csv` | The grid-search results, ranked by validation loss (22 of the 24 configurations) |
-| `finetune_macberth_scaling.py` | Trains Configs A, B, C and A_continue on the full corpus, saving a checkpoint after every epoch, and ranks all checkpoints |
-| `candidate_models.csv` | All 8 full-corpus checkpoints, ranked by validation loss |
+| `finetune_macberth_scaling.py` | Trains Configs A, B and C on the full corpus, saving a checkpoint after every epoch, and ranks all checkpoints |
+| `evaluate_validation.py` | Evaluates several models (e.g. the original MacBERTh and the selected checkpoint) on the same validation articles with the same masks, and lists the validation articles |
 
 ## Requirements
 
-The decade sub-corpora (`1800.txt` … `1910.txt`) in `data/en_decade_corpus/`, built with `corpus_preparation/build_decade_corpus.py`. Together they hold all 7,927,079 articles of 1801–1919, one per line; each line is one training sequence.
+- The decade sub-corpora `en_decade_corpus/1800.txt` … `1910.txt`, built with `corpus_preparation/build_decade_corpus.py`. Together they hold all 7,927,079 articles of 1801–1919, one per line; each line is one training sequence. All scripts take the folder that contains `en_decade_corpus/` as `--data-dir`, and write their output to `<data-dir>/output/`.
+- `torch`, `transformers`, `numpy`, `pandas`, `scikit-learn`, `tqdm`.
+- A GPU. The timings below are for one NVIDIA A40 with mixed precision.
 
-Set `dir_in` (or `DIR_IN`) at the top of each script to your local data directory.
+The model, [`emanjavacas/MacBERTh`](https://huggingface.co/emanjavacas/MacBERTh), is downloaded from the Hugging Face Hub on first use.
 
 ## Stage 1: Grid search on a 1% subcorpus
 
 ### Create the subcorpus
 
 ```bash
-python create_subcorpus.py --fraction 0.01 --seed 42
+python create_subcorpus.py --data-dir /path/to/data --fraction 0.01 --seed 42
 ```
 
-This samples 1% of the lines of each decade file, shuffles them, and writes `data/en_decade_corpus/subcorpus.txt` (about 79,000 lines).
+This samples 1% of the articles of each decade file, shuffles them, and writes `en_decade_corpus/subcorpus.txt` (about 79,000 articles).
 
 ### Run the grid search
 
@@ -46,30 +47,33 @@ The grid covers 4 learning rates × 2 batch sizes × 3 epoch counts:
 |---|---|
 | Learning rate | 2e-5, 3e-5, 4e-5, 5e-5 |
 | Batch size | 16, 32 |
-| Epochs | 2, 3, 4 |
+| Epochs | 2, 3, 4, 5|
 
 Each configuration is one job, selected by `--config_idx` (0–23):
 
 ```bash
-python grid_search.py --config_idx 0
-# ... through 23
+for i in $(seq 0 23); do
+    python grid_search.py --config_idx $i --data-dir /path/to/data
+done
 ```
 
 On a SLURM cluster the 24 jobs can be submitted as a job array. Each job trains MacBERTh on a random 90% of the subcorpus, evaluates on the remaining 10%, and writes its result to `output/grid_search/<run_name>/result.json`. Training uses MLM with masking probability 0.15, dropout 0.2 (hidden and attention), AdamW with weight decay 0.01, a linear learning-rate schedule without warmup, and a maximum sequence length of 256 tokens.
 
+To collect the results into one table ranked by validation loss:
+
+```bash
+python -c "
+import glob, json, pandas as pd
+d = pd.DataFrame(json.load(open(p)) for p in glob.glob('/path/to/data/output/grid_search/*/result.json'))
+d = d.sort_values('best_val_loss').reset_index(drop=True)
+d.insert(0, 'rank', d.index + 1)
+d.to_csv('grid_search_results.csv', index=False)
+print(d.head())"
+```
+
 ### Results
 
-`grid_search_results.csv` holds results for 22 of the 24 configurations; configurations 0 (lr 2e-5, batch size 16, 2 epochs) and 7 (lr 3e-5, batch size 16, 3 epochs) have none. The top 5:
-
-| Rank | Configuration | Learning rate | Batch size | Epochs | Val loss | Perplexity |
-|---|---|---|---|---|---|---|
-| 1 | lr5e-05_bs16_ep4 | 5e-5 | 16 | 4 | 2.810 | 16.62 |
-| 2 | lr4e-05_bs16_ep4 | 4e-5 | 16 | 4 | 2.831 | 16.96 |
-| 3 | lr5e-05_bs32_ep4 | 5e-5 | 32 | 4 | 2.847 | 17.24 |
-| 4 | lr3e-05_bs16_ep4 | 3e-5 | 16 | 4 | 2.857 | 17.42 |
-| 5 | lr4e-05_bs32_ep4 | 4e-5 | 32 | 4 | 2.862 | 17.49 |
-
-Batch size 16 outperforms 32 in all 10 learning-rate/epoch combinations where both were run, so all full-corpus configurations use batch size 16.
+`grid_search_results.csv` 
 
 ## Stage 2: Scaling experiment on the full corpus
 
@@ -77,68 +81,60 @@ Batch size 16 outperforms 32 in all 10 learning-rate/epoch combinations where bo
 
 | Config | Learning rate | Epochs | Rationale |
 |---|---|---|---|
-| A | 2e-5 | 3 | Conservative: low learning rate, more passes |
-| B | 3e-5 | 2 | Moderate |
-| C | 5e-5 | 1 | The grid-search learning rate, limited to a single pass |
-| A_continue | 2e-5 | 4–5 | Config A trained for two further epochs |
+| A | 2e-5 | 5 | Conservative: low learning rate, more passes |
+| B | 3e-5 | 3 | Moderate |
+| C | 5e-5 | 2 | The grid-search learning rate, with few passes |
 
-All configurations use batch size 16, MLM with masking probability 0.15, AdamW with weight decay 0.01, a linear learning-rate schedule with 10% warmup, gradient clipping at norm 1.0, a maximum sequence length of 256 tokens and fp16 mixed precision, with MacBERTh's default dropout. They share one train/validation split: a random 90/10 split within each decade (seed 42), so that every decade is represented in the validation set in proportion to its size.
+The three configurations have about the same product of learning rate and number of epochs, so they trade the size of each update against the number of passes over the data. All use batch size 16, MLM with masking probability 0.15, AdamW with weight decay 0.01, a linear learning-rate schedule with 10% warmup planned for the configuration's own number of epochs, gradient clipping at norm 1.0, a maximum sequence length of 256 tokens and fp16 mixed precision, with MacBERTh's default dropout. Each starts from the original pretrained MacBERTh.
 
-Configs A, B and C each start from the original pretrained MacBERTh. Config A_continue starts from the Config A epoch-3 checkpoint, with a new optimizer and a new learning-rate schedule planned for five epochs: the learning rate warms up again to 2e-5 over the first half epoch and then decays linearly. Training stops after epoch 5, at about two-thirds of the peak learning rate, so the schedule does not run to zero as it did for Config A.
+All three share one train/validation split: within each decade file, 10% of the articles are drawn at random (seed 42) for validation, so that every decade is represented in the validation set in proportion to its size. The remaining articles, about 7.1 million, are the training data; each is read once per epoch, as its first 256 subword tokens. No validation article is used in training.
 
 ### Running it
 
 ```bash
-# One configuration per GPU
-CUDA_VISIBLE_DEVICES=0 python finetune_macberth_scaling.py --config A
-CUDA_VISIBLE_DEVICES=1 python finetune_macberth_scaling.py --config B
-CUDA_VISIBLE_DEVICES=1 python finetune_macberth_scaling.py --config C
+# One configuration at a time
+python finetune_macberth_scaling.py --config A --data-dir /path/to/data
+python finetune_macberth_scaling.py --config B --data-dir /path/to/data
+python finetune_macberth_scaling.py --config C --data-dir /path/to/data
 
 # Or A, B and C in sequence
-CUDA_VISIBLE_DEVICES=0 python finetune_macberth_scaling.py --config all
-
-# Continue Config A (requires config_A/epoch_3)
-CUDA_VISIBLE_DEVICES=0 python finetune_macberth_scaling.py --config A_continue
+python finetune_macberth_scaling.py --config all --data-dir /path/to/data
 
 # Rank all checkpoints and write candidate_models.csv
-python finetune_macberth_scaling.py --config compare
+python finetune_macberth_scaling.py --config compare --data-dir /path/to/data
 ```
 
-Each epoch takes about 23–29 hours on one NVIDIA A40. Checkpoints are written to `output/scaling_experiment/config_<X>/epoch_<n>/`, each with a `checkpoint_info.json` recording its training loss, validation loss, perplexity and learning rate at the end of the epoch. The train/validation split is saved to `output/scaling_experiment/split_info.json`.
+Use one GPU per configuration (`CUDA_VISIBLE_DEVICES=0`, `1`, …); several configurations on the same GPU share it and finish no sooner. Each epoch takes about 11 hours on one A40, so A takes about 55 hours, B about 33 and C about 22.
+
+Checkpoints are written to `output/scaling_experiment/config_<X>/epoch_<n>/` (`--out-dir` to change this), each with a `checkpoint_info.json` recording its training loss, validation loss, perplexity and learning rate at the end of the epoch; `config_<X>/summary.json` collects them. The split is saved to `output/scaling_experiment/split_info.json`. A configuration that has finished (one with a `summary.json`) is not trained again.
 
 ### Results
 
-All 8 checkpoints (`candidate_models.csv`):
+`--config compare` ranks all ten checkpoints (A after epochs 1–5, B after epochs 1–3, C after epochs 1–2) by validation loss and writes them, with their training loss, to `output/scaling_experiment/candidate_models.csv`. A checkpoint after epoch *n* of a longer run is not the same as a run planned for *n* epochs, since its learning rate has not yet decayed to zero; the comparison of interest is between the final checkpoints of the three configurations, and the intermediate checkpoints show how each converges. The validation losses are not comparable with those of the grid search: they are measured on a different validation set, after training on about 90 times more data.
 
-| Checkpoint | Learning rate | Val loss | Perplexity | Hours (epoch) |
-|---|---|---|---|---|
-| **Config A, epoch 3** | 2e-5 | **2.093** | **8.11** | 23.2 |
-| Config A_continue, epoch 5 | 2e-5 | 2.108 | 8.23 | 28.3 |
-| Config B, epoch 2 | 3e-5 | 2.110 | 8.25 | 23.1 |
-| Config A, epoch 2 | 2e-5 | 2.147 | 8.56 | 23.2 |
-| Config A_continue, epoch 4 | 2e-5 | 2.165 | 8.72 | 28.9 |
-| Config C, epoch 1 | 5e-5 | 2.172 | 8.78 | 23.1 |
-| Config B, epoch 1 | 3e-5 | 2.235 | 9.34 | 23.1 |
-| Config A, epoch 1 | 2e-5 | 2.255 | 9.54 | 23.2 |
+## Comparing with MacBERTh
 
-These validation losses are not comparable with those of the grid search: they are measured on a different validation set, after training on about 90 times more data.
+The validation losses in `candidate_models.csv` were measured during training, each with its own random masking. `evaluate_validation.py` evaluates several models on the same validation articles with the same masked positions, so that the original MacBERTh and the domain-adapted checkpoints can be compared directly:
 
-The results confirm that the subcorpus optimum does not carry over to the full corpus:
+```bash
+python evaluate_validation.py --data-dir /path/to/data \
+    --models MacBERTh=emanjavacas/MacBERTh \
+             A5=/path/to/data/output/scaling_experiment/config_A/epoch_5 \
+             B3=/path/to/data/output/scaling_experiment/config_B/epoch_3 \
+             C2=/path/to/data/output/scaling_experiment/config_C/epoch_2 \
+    --out-dir results/validation_eval
+```
 
-- After one epoch, the highest learning rate is ahead (C: 2.172, B: 2.235, A: 2.255), but the lower learning rates overtake it with more epochs.
-- Config A improves with every epoch (2.255 → 2.147 → 2.093); the gain from epoch 2 to 3 is about half that from epoch 1 to 2.
-- Config A_continue does not improve on epoch 3. Raising the learning rate back to its peak first pushes the validation loss up (epoch 4: 2.165), and it falls again only partly (epoch 5: 2.108). This shows that restarting training at the peak learning rate does not help; it does not show how Config A would have done with a single schedule planned for more epochs.
-
-Config A, epoch 3 has the lowest validation loss of all checkpoints and is used for all further analysis.
+It rebuilds the split with the training code, stops if it differs from `split_info.json`, builds and masks the sequences as in training, and writes `validation_perplexity.csv`. `--max-articles N` evaluates on a fixed random sample of N articles instead of all 0.8 million validation articles. With `--write-split` it writes `validation_articles.tsv`, the articles no model has been trained on, from which evaluation material can be drawn; with `--year-dir` and `--line-index` (from `corpus_preparation/build_line_index.py`), each gets its article ID, newspaper ID and date.
 
 ## Using the model
 
-The selected checkpoint is a standard HuggingFace model directory and loads with `from_pretrained`:
+The selected checkpoint is a standard Hugging Face model directory and loads with `from_pretrained`:
 
 ```python
 from transformers import AutoModel, AutoTokenizer
 
-path = "output/scaling_experiment/config_A/epoch_3"
+path = "output/scaling_experiment/config_A/epoch_5"
 model = AutoModel.from_pretrained(path)
 tokenizer = AutoTokenizer.from_pretrained(path)
 ```
