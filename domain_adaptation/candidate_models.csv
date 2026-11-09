@@ -1,9 +1,0 @@
-label,val_loss,val_ppl,hours,path
-Config A epoch 3,2.092785,8.1075,23.19,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_A/epoch_3
-Config A_continue epoch 5,2.107879,8.2308,28.33,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_A_continue/epoch_5
-Config B epoch 2,2.110315,8.2508,23.1,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_B/epoch_2
-Config A epoch 2,2.146587,8.5556,23.19,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_A/epoch_2
-Config A_continue epoch 4,2.165459,8.7186,28.86,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_A_continue/epoch_4
-Config C epoch 1,2.172014,8.7759,23.12,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_C/epoch_1
-Config B epoch 1,2.234745,9.3441,23.11,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_B/epoch_1
-Config A epoch 1,2.255139,9.5366,23.21,/data/groups/trifecta/jiaqiz/british_newspapers/output/scaling_experiment/config_A/epoch_1
